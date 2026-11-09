@@ -76,8 +76,8 @@ void FluidSynthModel::initialise() {
     fluid_settings_setint(settings.get(), "synth.verbose", 1);
 #endif
 
+    fluid_settings_setnum(settings.get(), "synth.sample-rate", currentSampleRate);
     synth = { new_fluid_synth(settings.get()), delete_fluid_synth };
-    fluid_synth_set_sample_rate(synth.get(), currentSampleRate);
 
     // I can't hear a damned thing
     fluid_synth_set_gain(synth.get(), 2.0);
@@ -176,6 +176,7 @@ void FluidSynthModel::initialise() {
 const StringArray FluidSynthModel::programChangeParams{"bank", "preset"};
 void FluidSynthModel::parameterChanged(const String& parameterID, float newValue) {
     if (programChangeParams.contains(parameterID)) {
+        if (!synth || sfont_id < 0) return;
         int bank, preset;
         {
             RangedAudioParameter *param{valueTreeState.getParameter("bank")};
@@ -344,6 +345,7 @@ void FluidSynthModel::refreshBanks() {
 }
 
 void FluidSynthModel::setSampleRate(float sampleRate) {
+    if (currentSampleRate == sampleRate) return;
     currentSampleRate = sampleRate;
     // https://stackoverflow.com/a/40856043/5257399
     // test if a smart pointer is null
@@ -351,7 +353,20 @@ void FluidSynthModel::setSampleRate(float sampleRate) {
         // don't worry; we'll do this in initialise phase regardless
         return;
     }
-    fluid_synth_set_sample_rate(synth.get(), sampleRate);
+    // FluidSynth >= 2.4.4 requires the rate at construction. prepareToPlay()
+    // calls this while audio is stopped; preserve the loaded font and parameters.
+    String path;
+    if (sfont_id >= 0)
+        if (auto* font = fluid_synth_get_sfont_by_id(synth.get(), sfont_id))
+            path = String::fromUTF8(fluid_sfont_get_name(font));
+    synth.reset();
+    settings.reset();
+    sfont_id = -1;
+    initialise();
+    if (path.isNotEmpty()) loadFont(path);
+    for (const auto& entry : paramToController)
+        parameterChanged(entry.first, 0.0f);
+    if (sfont_id >= 0) parameterChanged("preset", 0.0f);
 }
 
 void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiMessages) {

@@ -52,5 +52,21 @@ int main(int argc, char** argv) {
     check(before < 1.0e-12, "no audio before the scheduled note-on");
     check(after > 1.0e-8, "SoundFont loads and renders after note-on");
     check(midi.isEmpty(), "instrument does not forward consumed MIDI");
+    // The same loaded font must survive host sample-rate changes. Counting
+    // crossings catches a synth silently left at 44100 Hz in a 48/96 kHz host.
+    for (const double rate : {48000.0, 96000.0, 44100.0}) {
+        processor.prepareToPlay(rate, 8192);
+        AudioBuffer<float> pitched(2, 8192);
+        MidiBuffer notes;
+        notes.addEvent(MidiMessage::noteOn(1, 69, static_cast<juce::uint8>(100)), 0);
+        processor.processBlock(pitched, notes);
+        processor.processBlock(pitched, notes);
+        int crossings = 0;
+        for (int i = 1; i < pitched.getNumSamples(); ++i)
+            if (pitched.getSample(0, i - 1) <= 0 && pitched.getSample(0, i) > 0) ++crossings;
+        const double frequency = crossings * rate / pitched.getNumSamples();
+        std::cout << "Host rate " << rate << ": measured " << frequency << " Hz\n";
+        check(std::abs(frequency - 440.0) < 15.0, "font and pitch preserved across host sample-rate change");
+    }
     return failures == 0 ? 0 : 1;
 }
