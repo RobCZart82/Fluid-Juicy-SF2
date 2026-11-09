@@ -28,6 +28,15 @@ jobs:
       - name: Build pinned sources and run processor regressions
         working-directory: src
         run: python3 scripts/build.py --arch x86_64 --jobs 3 --build-dir "${{ runner.temp }}/fj"
+      - name: Verify and package development build
+        working-directory: src
+        run: python3 scripts/package_desktop.py --arch x86_64 --build-dir "${{ runner.temp }}/fj"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: fluid-juicy-sf2-${{ matrix.os }}-x86_64-development
+          path: ${{ runner.temp }}/fj/x86_64/distribution/*
+          if-no-files-found: error
+          retention-days: 14
       - name: Preserve diagnostic logs
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

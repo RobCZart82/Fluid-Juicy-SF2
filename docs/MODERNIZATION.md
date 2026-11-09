@@ -9,9 +9,9 @@ Fluid Juicy SF2 updates the existing Juicy SF Plugin for native Apple Silicon. P
 ## Evidence and outstanding acceptance
 
 - Source pins: see `scripts/build.py` (full SHA for each dependency).
-- Local Windows dependency compilation was attempted. A long build path prevented completion; this is not a successful plugin build.
+- Native arm64, Intel macOS and Windows x64 source builds and processor regressions have passed in previous PR CI. Packaging on all three targets is a separate development gate; see the current commit checks.
 - Native macOS compilation and regression tests: see the exact GitHub Actions run for the development branch. Until a run passes, treat the source as an unverified development preview.
-- SF2 rendering and MIDI-offset assertions use an original generated sine SoundFont, not private or third-party soundbanks.
+- Processor regressions use an original generated SF2 and check MIDI offsets, finite output, state round-trip and pitch at 44.1/48/96 kHz. SF3 was also exercised locally with an original Vorbis fixture; full real-bank acceptance remains open.
 - Manual REAPER scan, editor display, SF2/SF3 loading, saved-project recall, moved/missing files, sample-rate changes, multiple instances, offline rendering and sustained playback remain required.
 - Developer ID signing/notarization and clean-machine install acceptance remain open. Do not call an ad-hoc signed CI artifact a notarized release.
 
@@ -22,3 +22,15 @@ The original CMake manufacturer code `Blbs`, plugin code `Jsfp`, bundle ID and p
 ## Licensing and provenance
 
 Retain all original author notices and GPLv3 source license. JUCE 9's open-source option is AGPLv3, which adds requirements for combined distribution (GPLv3 section 13 covers combination with AGPLv3). The original files are not silently relicensed. FluidSynth and libsndfile use LGPL terms; Xiph and Signalsmith components carry their own notices. Any binary distribution needs corresponding source, build instructions and all applicable notices. No proprietary SoundFont, Ketron sample or firmware is included.
+
+## Development packages
+
+`package_desktop.py` supports macOS arm64/x86_64 and Windows x86_64 with
+`--arch`, `--build-dir` and optional `--source-dir`. `package_macos.py` remains
+the existing macOS entry point. Packages include matching source archives and
+SHA-256 checksums. Packaging refuses tracked source edits or mismatched pins.
+macOS checks architecture and system-only dynamic dependencies, then applies an
+ad-hoc signature. Windows checks AMD64 PE32+ binaries; this does not verify
+all runtime dependencies or replace clean-machine testing.
+
+See [next development gates](DEVELOPMENT_PLAN.md).
