@@ -1,8 +1,8 @@
 .vscode
 /build/
 .DS_Store
-/VST2_SDK/*
-!/VST2_SDK/README.md
+/archives/legacy/VST2_SDK/*
+!/archives/legacy/VST2_SDK/README.md
 /llvm-mingw-*/
 /llvm-mingw-*.tar.xz
 __pycache__/

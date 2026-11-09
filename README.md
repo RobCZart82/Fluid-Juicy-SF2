@@ -59,6 +59,8 @@ The script downloads pinned dependencies, builds VST3 and standalone, and runs
 processor tests. It does not install into your plug-in folders.
 See [compatibility and dependency notes](docs/MODERNIZATION.md).
 
+Repository layout: [active development](docs/REPOSITORY_LAYOUT.md) · [legacy archive](archives/README.md).
+
 ## Credits and license
 
 Maintained by [RobCZart82](https://github.com/RobCZart82).

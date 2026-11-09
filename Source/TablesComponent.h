@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "../JuceLibraryCode/JuceHeader.h"
+#include "JuceHeader.h"
 #include "Pills.h"
 #include "TableComponent.h"
 #include "FluidSynthModel.h"
