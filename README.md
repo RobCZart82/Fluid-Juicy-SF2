@@ -20,14 +20,18 @@ The current instrument is single-part. Full 16-part GM2/GS support is planned.
 
 ## Download
 
-macOS Apple Silicon development packages are available from
-[GitHub Actions](https://github.com/RobCZart82/fluid-juicy-sf2/actions/workflows/macos-arm64.yml).
-Open a successful run and download `fluid-juicy-sf2-macos-arm64-development`.
-It includes VST3, standalone and matching source. GitHub sign-in may be required.
+Development packages are available from [GitHub Actions](https://github.com/RobCZart82/Fluid-Juicy-SF2/actions).
+Open a successful run for the branch/commit you want and choose your platform:
 
-Intel macOS and Windows builds are currently available from source.
-Development packages are ad-hoc signed on macOS, without Developer ID signing or
-notarization. REAPER and minimum-OS acceptance testing is still in progress.
+| Platform | Workflow |
+| --- | --- |
+| macOS Apple Silicon | Native Apple Silicon |
+| macOS Intel / Windows x64 | Intel and Windows validation |
+
+Each artifact contains VST3, standalone, matching pinned sources and SHA-256
+checksums. GitHub sign-in may be required. Packages are temporary development
+downloads, not stable releases. macOS packages are ad-hoc signed, not notarized;
+Windows packages are unsigned. REAPER and minimum-OS acceptance remain open.
 
 ## Quick start
 
