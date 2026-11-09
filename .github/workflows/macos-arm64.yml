@@ -4,9 +4,6 @@ on:
   pull_request:
 permissions:
   contents: read
-concurrency:
-  group: macos-arm64-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
 jobs:
   build:
     runs-on: macos-26
