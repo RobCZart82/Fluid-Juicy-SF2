@@ -1,0 +1,40 @@
+name: Intel and Windows validation
+on:
+  workflow_dispatch:
+  pull_request:
+permissions:
+  contents: read
+concurrency:
+  group: desktop-validation-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS Intel
+            os: macos-15-intel
+          - name: Windows x64
+            os: windows-2022
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+          path: src
+      - name: Build pinned sources and run processor regressions
+        working-directory: src
+        run: python3 scripts/build.py --arch x86_64 --jobs 3 --build-dir "${{ runner.temp }}/fj"
+      - name: Preserve diagnostic logs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ matrix.os }}-diagnostics
+          path: |
+            ${{ runner.temp }}/fj/x86_64/**/CMakeConfigureLog.yaml
+            ${{ runner.temp }}/fj/x86_64/plugin/Testing/Temporary/LastTest.log
+          if-no-files-found: ignore
+          retention-days: 14

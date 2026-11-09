@@ -9,6 +9,7 @@
 #include <memory>
 #include <map>
 #include "MidiConstants.h"
+#include "MacFileAccess.h"
 
 using namespace std;
 
@@ -69,6 +70,10 @@ private:
     // members are destroyed in reverse of the order they're declared
     // http://www.fluidsynth.org/api/
     // in their examples, they destroy the synth before destroying the settings
+#if JUCE_MAC || JUCE_IOS
+    // Declared before the synth so access outlives FluidSynth destruction.
+    std::unique_ptr<JuicyMac::ScopedFileAccess> fileAccess;
+#endif
     unique_ptr<fluid_settings_t, decltype(&delete_fluid_settings)> settings;
     unique_ptr<fluid_synth_t, decltype(&delete_fluid_synth)> synth;
 

@@ -15,7 +15,7 @@
 #include "GuiConstants.h"
 
 using namespace std;
-using Parameter = AudioProcessorValueTreeState::Parameter;
+
 
 AudioProcessor* JUCE_CALLTYPE createPluginFilter();
 
@@ -41,7 +41,7 @@ JuicySFAudioProcessor::JuicySFAudioProcessor()
     }, {} }, nullptr);
     // no properties, no subtrees (yet)
     valueTreeState.state.appendChild({ "banks", {}, {} }, nullptr);
-    
+
     initialiseSynth();
 }
 
@@ -59,7 +59,7 @@ AudioProcessorValueTreeState::ParameterLayout JuicySFAudioProcessor::createParam
         make_unique<AudioParameterInt>("filterCutOff", "low-pass filter cut-off frequency", MidiConstants::midiMinValue, MidiConstants::midiMaxValue, MidiConstants::midiMinValue, "Cut" ),
         make_unique<AudioParameterInt>("filterResonance", "low-pass filter resonance attentuation", MidiConstants::midiMinValue, MidiConstants::midiMaxValue, MidiConstants::midiMinValue, "Res" ),
     };
-    
+
     return {
         make_move_iterator(begin(params)),
         make_move_iterator(end(params))
@@ -185,7 +185,7 @@ void JuicySFAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffer&
     // Now pass any incoming midi messages to our keyboard state object, and let it
     // add messages to the buffer if the user is clicking on the on-screen keys
     keyboardState.processNextMidiBuffer(midiMessages, 0, buffer.getNumSamples(), true);
-    
+
     fluidSynthModel.processBlock(buffer, midiMessages);
 
     // and now get our synth to process these midi events and generate its output.
@@ -251,9 +251,9 @@ void JuicySFAudioProcessor::getStateInformation (MemoryBlock& destData)
             newElement->setAttribute("bookmark", value.getBinaryData()->toBase64Encoding());
         }
     }
-    
+
     DEBUG_PRINT(xml.createDocument("",false,false));
-    
+
     copyXmlToBinary(xml, destData);
 }
 
@@ -262,9 +262,10 @@ void JuicySFAudioProcessor::setStateInformation (const void* data, int sizeInByt
     // You should use this method to restore your parameters from this memory block,
     // whose contents will have been created by the getStateInformation() call.
     // This getXmlFromBinary() helper function retrieves our XML from the binary blob..
-    shared_ptr<XmlElement> xmlState{getXmlFromBinary(data, sizeInBytes)};
-    DEBUG_PRINT(xmlState->createDocument("",false,false));
-    
+    if (data == nullptr || sizeInBytes <= 0) return;
+    auto xmlState = getXmlFromBinary(data, sizeInBytes);
+    if (xmlState) { DEBUG_PRINT(xmlState->createDocument("",false,false)); }
+
     if (xmlState.get() != nullptr) {
         // make sure that it's actually our type of XML object..
         if (xmlState->hasTagName(valueTreeState.state.getType())) {

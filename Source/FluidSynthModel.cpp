@@ -9,13 +9,9 @@
 #include "MidiConstants.h"
 #include "Util.h"
 
+#include "MacFileAccess.h"
 #if JUCE_MAC || JUCE_IOS
-  #include <juce_core/native/juce_mac_CFHelpers.h>
-  #include <CoreFoundation/CFString.h>
-  #include <CoreFoundation/CFData.h>
-  #include <CoreFoundation/CFURL.h>
-  #include <CoreFoundation/CFError.h>
-  using juce::CFUniquePtr;
+using JuicyMac::CFPtr;
 #endif
 
 using namespace std;
@@ -80,8 +76,8 @@ void FluidSynthModel::initialise() {
     fluid_settings_setint(settings.get(), "synth.verbose", 1);
 #endif
 
+    fluid_settings_setnum(settings.get(), "synth.sample-rate", currentSampleRate);
     synth = { new_fluid_synth(settings.get()), delete_fluid_synth };
-    fluid_synth_set_sample_rate(synth.get(), currentSampleRate);
 
     // I can't hear a damned thing
     fluid_synth_set_gain(synth.get(), 2.0);
@@ -180,6 +176,7 @@ void FluidSynthModel::initialise() {
 const StringArray FluidSynthModel::programChangeParams{"bank", "preset"};
 void FluidSynthModel::parameterChanged(const String& parameterID, float newValue) {
     if (programChangeParams.contains(parameterID)) {
+        if (!synth || sfont_id < 0) return;
         int bank, preset;
         {
             RangedAudioParameter *param{valueTreeState.getParameter("bank")};
@@ -223,22 +220,42 @@ void FluidSynthModel::valueTreePropertyChanged(ValueTree& treeWhosePropertyHasCh
     if (treeWhosePropertyHasChanged.getType() == StringRef("soundFont")) {
 #if JUCE_MAC || JUCE_IOS
         if (property == StringRef("bookmark")) {
-            CFErrorRef* cfError;
-            MemoryBlock buffer;
-            var bookmark = treeWhosePropertyHasChanged.getProperty("bookmark", buffer);
-            jassert(bookmark.isBinaryData());
-            CFUniquePtr<CFDataRef> data{CFDataCreate(
-                NULL,
-                static_cast<const UInt8 *>(bookmark.getBinaryData()->getData()),
-                static_cast<CFIndex>(bookmark.getBinaryData()->getSize()))};
-            CFUniquePtr<CFURLRef> cfURL{CFURLCreateByResolvingBookmarkData(NULL, data.get(), kCFURLBookmarkResolutionWithSecurityScope, NULL, NULL, NULL, cfError)};
-
-            CFUniquePtr<CFStringRef> cfPath {CFURLCopyFileSystemPath(cfURL.get(), CFURLPathStyle::kCFURLPOSIXPathStyle)};
-            StringRef path {String::fromCFString(cfPath.get())};
+            const auto bookmark = treeWhosePropertyHasChanged.getProperty("bookmark");
+            const auto* bytes = bookmark.getBinaryData();
+            if (bytes != nullptr && bytes->getSize() > 0) {
+                CFPtr<CFDataRef> data{CFDataCreate(nullptr,
+                    static_cast<const UInt8*>(bytes->getData()), static_cast<CFIndex>(bytes->getSize()))};
+                CFErrorRef error = nullptr;
+                Boolean stale = false;
+                CFURLRef resolved = data ? CFURLCreateByResolvingBookmarkData(nullptr, data.get(),
+                    kCFURLBookmarkResolutionWithSecurityScope, nullptr, nullptr, &stale, &error) : nullptr;
+                CFPtr<CFErrorRef> ownedError{error};
+                auto access = std::make_unique<JuicyMac::ScopedFileAccess>(resolved);
+                if (access->url) {
+                    CFPtr<CFStringRef> cfPath{CFURLCopyFileSystemPath(access->url.get(), kCFURLPOSIXPathStyle)};
+                    const String path = cfPath ? String::fromCFString(cfPath.get()) : String();
+                    if (path.isNotEmpty()) {
+                        unloadAndLoadFont(path);
+                        // Keep access alive for any deferred sample reads until replacement/destruction.
+                        fileAccess = std::move(access);
+                        return;
+                    }
+                }
+            }
+            const String path = treeWhosePropertyHasChanged.getProperty("path", "");
             if (path.isNotEmpty()) {
-                CFURLStartAccessingSecurityScopedResource(cfURL.get());
                 unloadAndLoadFont(path);
-                CFURLStopAccessingSecurityScopedResource(cfURL.get());
+                fileAccess.reset();
+            }
+        } else if (property == StringRef("path")) {
+            const auto bookmark = treeWhosePropertyHasChanged.getProperty("bookmark");
+            const auto* bytes = bookmark.getBinaryData();
+            if (bytes == nullptr || bytes->getSize() == 0) {
+                const String path = treeWhosePropertyHasChanged.getProperty("path", "");
+                if (path.isNotEmpty()) {
+                    unloadAndLoadFont(path);
+                    fileAccess.reset();
+                }
             }
         }
 #else
@@ -328,6 +345,7 @@ void FluidSynthModel::refreshBanks() {
 }
 
 void FluidSynthModel::setSampleRate(float sampleRate) {
+    if (currentSampleRate == sampleRate) return;
     currentSampleRate = sampleRate;
     // https://stackoverflow.com/a/40856043/5257399
     // test if a smart pointer is null
@@ -335,15 +353,35 @@ void FluidSynthModel::setSampleRate(float sampleRate) {
         // don't worry; we'll do this in initialise phase regardless
         return;
     }
-    fluid_synth_set_sample_rate(synth.get(), sampleRate);
+    // FluidSynth >= 2.4.4 requires the rate at construction. prepareToPlay()
+    // calls this while audio is stopped; preserve the loaded font and parameters.
+    String path;
+    if (sfont_id >= 0)
+        if (auto* font = fluid_synth_get_sfont_by_id(synth.get(), sfont_id))
+            path = String::fromUTF8(fluid_sfont_get_name(font));
+    synth.reset();
+    settings.reset();
+    sfont_id = -1;
+    initialise();
+    if (path.isNotEmpty()) loadFont(path);
+    for (const auto& entry : paramToController)
+        parameterChanged(entry.first, 0.0f);
+    if (sfont_id >= 0) parameterChanged("preset", 0.0f);
 }
 
 void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiMessages) {
-    MidiBuffer processedMidi;
-    int time;
-    MidiMessage m;
-
-    for (MidiBuffer::Iterator i{midiMessages}; i.getNextEvent(m, time);) {
+    int rendered = 0;
+    const auto renderUntil = [&](int end) {
+        const int count = end - rendered;
+        if (count <= 0) return;
+        float* outputs[2] = { buffer.getWritePointer(0, rendered),
+            buffer.getNumChannels() > 1 ? buffer.getWritePointer(1, rendered) : nullptr };
+        fluid_synth_process(synth.get(), count, 0, nullptr, buffer.getNumChannels(), outputs);
+        rendered = end;
+    };
+    for (const auto metadata : midiMessages) {
+        const auto m = metadata.getMessage();
+        renderUntil(juce::jlimit(rendered, buffer.getNumSamples(), metadata.samplePosition));
         DEBUG_PRINT(m.getDescription());
         
         if (m.isNoteOn()) {
@@ -425,13 +463,7 @@ void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiM
     // fluid_synth_get_cc(fluidSynth, 0, 73, &pval);
     // Logger::outputDebugString ( juce::String::formatted("hey: %d\n", pval) );
 
-    fluid_synth_process(
-        synth.get(),
-        buffer.getNumSamples(),
-        0,
-        nullptr,
-        buffer.getNumChannels(),
-        buffer.getArrayOfWritePointers());
+    renderUntil(buffer.getNumSamples());
 }
 
 int FluidSynthModel::getNumPrograms()
