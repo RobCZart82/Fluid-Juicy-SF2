@@ -1,3 +1,44 @@
+# Fluid Juicy SF2
+
+A modernization fork of [Birch-san/juicysfplugin](https://github.com/Birch-san/juicysfplugin), preserving its familiar interface and SF2/SF3 player workflow.
+
+**Development preview — no new stable release yet.** The immediate target is a native Apple Silicon macOS VST3 and standalone app, built from official open-source FluidSynth 2.6.2 and JUCE 9.0.5 sources. Full upstream Git history and original attribution are retained.
+
+## Current scope
+
+- Reproducible dependency checkouts pinned to complete commit IDs.
+- Native `arm64` build, without Rosetta or an Intel Homebrew installation.
+- Original controls, parameter IDs and state schema retained.
+- CoreFoundation bookmark handling updated without private JUCE headers.
+- MIDI events rendered at their offsets within each audio block.
+- No automatic installation into existing plugin folders.
+
+This remains the original single-part Juicy player. A 16-part GM2 module, SoundFont editing/conversion, new skins and bundled sample banks are outside this update. A newer engine alone does not establish GM2/GS compliance or hardware-identical sound.
+
+## Build on an Apple Silicon Mac
+
+Install Xcode Command Line Tools, Python 3, Git and CMake 3.24 or newer. Then:
+
+```sh
+python3 scripts/build.py --arch arm64
+```
+
+The script builds the pinned Ogg, Vorbis, FLAC, Opus, libsndfile, FluidSynth and JUCE sources in `build/`. SF3 support is required rather than silently omitted. It then builds VST3, standalone and processor regression tests. Nothing is copied into your DAW plugin folders.
+
+GitHub Actions uses a native Apple Silicon runner and additionally checks the resulting Mach-O architecture and runtime dependencies. CI build and processor tests are separate from manual REAPER acceptance. Developer ID signing/notarization and clean-machine acceptance are not yet completed.
+
+See [modernization notes](docs/MODERNIZATION.md) for status, identity compatibility and licensing. Legacy project files and prebuilt libraries remain for history; the supported modernization path is `scripts/build.py`, not the old Xcode/Projucer build.
+
+## Licensing
+
+The original Juicy code retains its GPLv3 license and author notices. JUCE 9 is dual licensed under AGPLv3/commercial terms. This open-source build uses its AGPLv3 option; combined distribution must satisfy those terms as well as FluidSynth/libsndfile LGPL and the other dependency licenses. No sample bank redistribution rights are implied. See [LICENSE.txt](LICENSE.txt) and the source dependencies' own licenses.
+
+---
+
+## Historical upstream README
+
+The following is preserved historical documentation. Its release links, build instructions, dependency versions and test matrix describe upstream releases, not this fork's current validation status.
+
 ![image](https://user-images.githubusercontent.com/6141784/60401921-32af9e00-9b80-11e9-8e3a-6c5717f868d6.png)
 
 Latest stable release:
@@ -48,7 +89,7 @@ You can plugin your hardware MIDI keyboard, or play with the software MIDI keybo
 **Mode 2: audio plugin**
 
 juicysfplugin audio plugins are provided: VST, VST3, AU, AUv3.  
-This means you can host it inside your DAW (e.g. GarageBand, FL Studio Mac, Sibelius…) to record the sounds you make.
+This means you can host it inside your DAW (e.g. GarageBand, FL Studio Mac, Sibeliusâ€¦) to record the sounds you make.
 
 # Why
 
@@ -111,7 +152,7 @@ ASCII -> MIDI keybinding is the same as FL Studio's:
 
 ## Using the standalone .app (macOS) / .exe (Windows)
 
-Generally the .app will Just Work™, but if your audio setup is more bespoke, then you'll need to configure.
+Generally the .app will Just Workâ„˘, but if your audio setup is more bespoke, then you'll need to configure.
 
 **Options > Audio/MIDI settings**
 
@@ -160,7 +201,7 @@ ln -sf /Applications/JUCE/extras/AudioPluginHost/Builds/MacOSX/build/Debug/Audio
 
 ## Visual Studio Code settings
 
-Concerning the use of Visual Studio Code extension, [C/C++ for Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools), as an IDE (i.e. instead of XCode)…
+Concerning the use of Visual Studio Code extension, [C/C++ for Visual Studio Code](https://marketplace.visualstudio.com/items?itemName=ms-vscode.cpptools), as an IDE (i.e. instead of XCode)â€¦
 
 Following advice is for macOS, using brew-installed LLVM 8 Clang.
 

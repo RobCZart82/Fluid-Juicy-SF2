@@ -9,12 +9,9 @@
 // #ifdef __APPLE__
 //   #include <CoreFoundation/CFURL.h>
 // #endif
+#include "MacFileAccess.h"
 #if JUCE_MAC || JUCE_IOS
-  #include <juce_core/native/juce_mac_CFHelpers.h>
-  #include <CoreFoundation/CFString.h>
-  #include <CoreFoundation/CFData.h>
-  #include <CoreFoundation/CFError.h>
-  using juce::CFUniquePtr;
+using JuicyMac::CFPtr;
 #endif
 
 FilePicker::FilePicker(
@@ -72,22 +69,19 @@ void FilePicker::paint(Graphics& g)
 
 void FilePicker::filenameComponentChanged (FilenameComponent*) {
 #if JUCE_MAC || JUCE_IOS
-    CFUniquePtr<CFStringRef> fileExtensionCF{fileChooser.getCurrentFile().getFullPathName().toCFString()};
-    CFUniquePtr<CFURLRef> cfURL{CFURLCreateWithFileSystemPath(NULL, fileExtensionCF.get(), CFURLPathStyle::kCFURLPOSIXPathStyle, false)};
-    CFErrorRef* cfError;
-
-    // CFURLCreateBookmarkData causes this error:
-    // cannot open file at line 45340 of [d24547a13b]
-    // os_unix.c:45340: (0) open(/var/db/DetachedSignatures) - Undefined error: 0
-    CFUniquePtr<CFDataRef> cfData{CFURLCreateBookmarkData(NULL, cfURL.get(), bookmarkCreationOptions, NULL, NULL, cfError)};
-
-    const UInt8 * cfDataBytePtr{CFDataGetBytePtr(cfData.get())};
-    CFIndex cfDataByteLength{CFDataGetLength(cfData.get())};
-    {
-        Value value{valueTreeState.state.getChildWithName("soundFont").getPropertyAsValue("bookmark", nullptr)};
-        var var{static_cast<const void*>(cfDataBytePtr), static_cast<size_t>(cfDataByteLength)};
-        value.setValue(var);
+    CFPtr<CFStringRef> filePath{fileChooser.getCurrentFile().getFullPathName().toCFString()};
+    CFPtr<CFURLRef> url{CFURLCreateWithFileSystemPath(nullptr, filePath.get(), kCFURLPOSIXPathStyle, false)};
+    CFErrorRef error = nullptr;
+    CFPtr<CFDataRef> data{url ? CFURLCreateBookmarkData(nullptr, url.get(),
+        bookmarkCreationOptions, nullptr, nullptr, &error) : nullptr};
+    CFPtr<CFErrorRef> ownedError{error};
+    MemoryBlock bookmark;
+    if (data) {
+        bookmark.append(CFDataGetBytePtr(data.get()), static_cast<size_t>(CFDataGetLength(data.get())));
     }
+    // Empty bookmarks are valid: non-sandboxed hosts can use the saved path.
+    Value bookmarkValue{valueTreeState.state.getChildWithName("soundFont").getPropertyAsValue("bookmark", nullptr)};
+    bookmarkValue.setValue(var(bookmark));
 #endif
     // currentPath = fileChooser.getCurrentFile().getFullPathName();
     // fluidSynthModel.onFileNameChanged(fileChooser.getCurrentFile().getFullPathName(), -1, -1);
