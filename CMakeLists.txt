@@ -42,6 +42,11 @@ juce_add_plugin(JuicySFPlugin
     FORMATS ${JUICY_FORMATS}
     PRODUCT_NAME "juicysfplugin")
 add_subdirectory(Source)
+# JUCE 9 uses C++17 class template argument deduction in its MIDI scheduler.
+# MSVC's legacy permissive parser misreads unique_lock lock(mutex) there.
+target_compile_options(JuicySFPlugin PUBLIC
+    $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/permissive->
+    $<$<COMPILE_LANG_AND_ID:CXX,MSVC>:/Zc:__cplusplus>)
 target_compile_definitions(JuicySFPlugin PUBLIC
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 DONT_SET_USING_JUCE_NAMESPACE=1
     JUCE_VST3_CAN_REPLACE_VST2=0)
