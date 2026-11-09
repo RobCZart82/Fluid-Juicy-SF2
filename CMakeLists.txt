@@ -20,8 +20,8 @@ if(NOT FLUIDSYNTH_SUPPORT_SF3)
 endif()
 juce_add_plugin(JuicySFPlugin
     ICON_BIG resources/Logo512.png
-    COMPANY_NAME Birchlabs
-    COMPANY_WEBSITE "https://birchlabs.co.uk"
+    COMPANY_NAME RobCZart82
+    COMPANY_WEBSITE "https://github.com/RobCZart82/fluid-juicy-sf2"
     BUNDLE_ID uk.co.birchlabs.juicysfplugin
     DESCRIPTION "Audio plugin to play soundfonts"
     IS_SYNTH TRUE
@@ -40,7 +40,7 @@ juce_add_plugin(JuicySFPlugin
     # Preserve the original CMake ID (historical Projucer used a different ID).
     PLUGIN_CODE Jsfp
     FORMATS ${JUICY_FORMATS}
-    PRODUCT_NAME "juicysfplugin")
+    PRODUCT_NAME "Fluid Juicy SF2")
 add_subdirectory(Source)
 # JUCE 9 uses C++17 class template argument deduction in its MIDI scheduler.
 # MSVC's legacy permissive parser misreads unique_lock lock(mutex) there.

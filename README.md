@@ -31,7 +31,7 @@ notarization. REAPER and minimum-OS acceptance testing is still in progress.
 
 ## Quick start
 
-1. Load `juicysfplugin` in a VST3 host such as REAPER, or open the standalone app.
+1. Load **Fluid Juicy SF2 (RobCZart82)** in a VST3 host such as REAPER, or open the standalone app.
 2. Drag an `.sf2` or `.sf3` file into the SoundFont picker.
 3. Select a bank and preset, then play using MIDI or the on-screen keyboard.
 

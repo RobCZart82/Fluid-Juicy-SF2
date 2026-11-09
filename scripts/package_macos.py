@@ -21,8 +21,8 @@ def main():
     artefacts = build / 'plugin' / 'JuicySFPlugin_artefacts' / 'Release'
     evidence = {}
     for suffix, directory in [('.vst3', 'VST3'), ('.app', 'Standalone')]:
-        bundle = artefacts / directory / ('juicysfplugin' + suffix)
-        binary = bundle / 'Contents' / 'MacOS' / 'juicysfplugin'
+        bundle = artefacts / directory / ('Fluid Juicy SF2' + suffix)
+        binary = bundle / 'Contents' / 'MacOS' / 'Fluid Juicy SF2'
         architecture = subprocess.check_output(['lipo', '-archs', str(binary)], text=True).strip()
         if architecture != 'arm64':
             raise RuntimeError(f'Unexpected architecture: {binary}: {architecture}')
@@ -43,7 +43,7 @@ def main():
         'Fluid Juicy SF2 - development preview, native Apple Silicon.\n'
         'Ad-hoc signed only; not Developer ID signed or notarized.\n'
         'CI compilation and processor tests do not prove REAPER/manual acceptance.\n'
-        'Original Juicy interface and binary name retained. No SoundFonts included.\n'
+        'Fluid Juicy SF2 by RobCZart82. No SoundFonts included.\n'
         'See corresponding-source.tar.gz for complete build sources and license notices.\n', encoding='utf-8')
 
     # Include exact corresponding source, not only links to external repositories.
