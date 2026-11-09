@@ -63,7 +63,8 @@ def main():
     common = ['-DCMAKE_BUILD_TYPE=Release', '-DBUILD_SHARED_LIBS=OFF',
               '-DCMAKE_POSITION_INDEPENDENT_CODE=ON', '-DCMAKE_INSTALL_LIBDIR=lib',
               f'-DCMAKE_INSTALL_PREFIX={prefix}', f'-DCMAKE_PREFIX_PATH={prefix}',
-              '-DBUILD_TESTING=OFF', '-DCMAKE_POLICY_VERSION_MINIMUM=3.5']
+              '-DBUILD_TESTING=OFF', '-DCMAKE_POLICY_VERSION_MINIMUM=3.5',
+              '-DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON']
     generator = args.generator or ('Unix Makefiles' if mac else 'Visual Studio 17 2022')
     gen = ['-G', generator]
     if generator.startswith('Visual Studio'):
@@ -84,6 +85,7 @@ def main():
     dependency('flac', ['-DBUILD_PROGRAMS=OFF', '-DBUILD_EXAMPLES=OFF', '-DBUILD_DOCS=OFF', '-DBUILD_CXXLIBS=OFF', '-DINSTALL_MANPAGES=OFF'])
     dependency('opus', ['-DOPUS_BUILD_PROGRAMS=OFF', '-DOPUS_BUILD_TESTING=OFF'])
     dependency('sndfile', ['-DBUILD_PROGRAMS=OFF', '-DBUILD_EXAMPLES=OFF',
+                          f'-DCMAKE_PROJECT_libsndfile_INCLUDE={ROOT / "cmake/DependencyThreads.cmake"}',
                           '-DENABLE_EXTERNAL_LIBS=ON', '-DENABLE_MPEG=OFF',
                           '-DENABLE_CPACK=OFF', '-DCMAKE_FIND_PACKAGE_PREFER_CONFIG=ON', '-DCMAKE_DISABLE_FIND_PACKAGE_FLAC=OFF'])
     disabled = ['alsa', 'aufile', 'dbus', 'ipv6', 'jack', 'ladspa', 'midishare',
