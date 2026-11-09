@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "../JuceLibraryCode/JuceHeader.h"
+#include "JuceHeader.h"
 #include "FluidSynthModel.h"
 
 #if JUCE_MAC || JUCE_IOS

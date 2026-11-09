@@ -4,7 +4,7 @@
 
 #pragma once
 
-#include "../JuceLibraryCode/JuceHeader.h"
+#include "JuceHeader.h"
 #include <fluidsynth.h>
 #include <memory>
 #include <map>
