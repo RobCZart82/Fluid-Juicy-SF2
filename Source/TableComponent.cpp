@@ -229,7 +229,7 @@ int TableComponent::getColumnAutoSizeWidth (int columnId) {
     for (int i{getNumRows()}; --i >= 0;) {
         TableRow& row{rows[i]};
         String text{row.getStringContents(columnId)};
-        widest = jmax (widest, font.getStringWidth (text));
+        widest = jmax (widest, juce::GlyphArrangement::getStringWidthInt (font, text));
     }
 
     return widest + 8;

@@ -7,7 +7,7 @@ on:
 permissions:
   contents: read
 concurrency:
-  group: desktop-validation-${{ github.ref }}
+  group: desktop-validation-${{ github.head_ref || github.ref_name }}
   cancel-in-progress: true
 jobs:
   build:
