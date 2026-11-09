@@ -1,13 +1,11 @@
 name: Intel and Windows validation
 on:
   workflow_dispatch:
-  push:
-    branches: ["modernize/**"]
   pull_request:
 permissions:
   contents: read
 concurrency:
-  group: desktop-validation-${{ github.head_ref || github.ref_name }}
+  group: desktop-validation-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 jobs:
   build:
