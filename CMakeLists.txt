@@ -54,6 +54,11 @@ if(JUICY_BUILD_TESTS)
     juce_add_console_app(JuicyRegressionTests PRODUCT_NAME "Juicy regression tests")
     target_sources(JuicyRegressionTests PRIVATE tests/ProcessorTests.cpp)
     target_link_libraries(JuicyRegressionTests PRIVATE JuicySFPlugin)
+    # The processor headers include JUCE and FluidSynth headers, whose include
+    # paths are private to the shared-code target. Reuse them without compiling
+    # a second copy of the JUCE modules into the test executable.
+    target_include_directories(JuicyRegressionTests PRIVATE
+        $<TARGET_PROPERTY:JuicySFPlugin,INCLUDE_DIRECTORIES>)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/make_fixture.py"
         "${CMAKE_BINARY_DIR}/test-sine.sf2" COMMAND_ERROR_IS_FATAL ANY)
