@@ -21,8 +21,8 @@ def main():
     artefacts = build / 'plugin' / 'JuicySFPlugin_artefacts' / 'Release'
     evidence = {}
     for suffix, directory in [('.vst3', 'VST3'), ('.app', 'Standalone')]:
-        bundle = artefacts / directory / ('Fluid Juicy SF2' + suffix)
-        binary = bundle / 'Contents' / 'MacOS' / 'Fluid Juicy SF2'
+        bundle = artefacts / directory / ('Fluid_Juicy_SF2' + suffix)
+        binary = bundle / 'Contents' / 'MacOS' / 'Fluid_Juicy_SF2'
         architecture = subprocess.check_output(['lipo', '-archs', str(binary)], text=True).strip()
         if architecture != 'arm64':
             raise RuntimeError(f'Unexpected architecture: {binary}: {architecture}')

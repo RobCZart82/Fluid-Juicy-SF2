@@ -40,7 +40,8 @@ juce_add_plugin(JuicySFPlugin
     # Preserve the original CMake ID (historical Projucer used a different ID).
     PLUGIN_CODE Jsfp
     FORMATS ${JUICY_FORMATS}
-    PRODUCT_NAME "Fluid Juicy SF2")
+    PLUGIN_NAME "Fluid Juicy SF2"
+    PRODUCT_NAME "Fluid_Juicy_SF2")
 add_subdirectory(Source)
 # JUCE 9 uses C++17 class template argument deduction in its MIDI scheduler.
 # MSVC's legacy permissive parser misreads unique_lock lock(mutex) there.
