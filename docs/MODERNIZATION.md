@@ -17,7 +17,7 @@ Fluid Juicy SF2 updates the existing Juicy SF Plugin for native Apple Silicon. P
 
 ## Compatibility
 
-The original CMake manufacturer code `Blbs`, plugin code `Jsfp`, bundle ID, binary product name and parameter/state identifiers are retained. The historical Projucer project used a differing plugin code (`Jspf`); old release project recall is therefore not proven by retaining the CMake identifiers. Test old sessions in an isolated environment before replacing any installed version. No automatic plugin-folder installation is performed.
+The original CMake manufacturer code `Blbs`, plugin code `Jsfp`, bundle ID and parameter/state identifiers are retained. The displayed product/vendor names are Fluid Juicy SF2 / RobCZart82, with Fluid_Juicy_SF2.vst3 and Fluid_Juicy_SF2.app bundles. REAPER may need a rescan to replace cached names; existing track names and manually renamed FX instances are project data and are not automatically renamed. The historical Projucer project used a differing plugin code (`Jspf`); old release project recall is therefore not proven by retaining the CMake identifiers. Test old sessions in an isolated environment before replacing any installed version. No automatic plugin-folder installation is performed.
 
 ## Licensing and provenance
 
