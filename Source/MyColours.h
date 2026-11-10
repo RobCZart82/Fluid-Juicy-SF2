@@ -6,8 +6,11 @@
 
 #include "JuceHeader.h"
 
-class MyColours {
+class MyColours final : public LookAndFeel_V4
+{
 public:
-    static Colour getUIColourIfAvailable (LookAndFeel_V4::ColourScheme::UIColour uiColour, Colour fallback);
+    MyColours();
 
+    static constexpr juce::uint32 selectedRow = 0xff214640;
+    static constexpr juce::uint32 accent = 0xff63c7bb;
 };
