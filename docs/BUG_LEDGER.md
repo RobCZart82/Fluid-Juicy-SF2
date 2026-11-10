@@ -14,7 +14,7 @@ validation separately; CI is not manual REAPER acceptance.
 | F06 | P2 | Host is told the instrument has no release/effect tail | Open | Tail-render test and reporting policy required |
 | F07 | P2 | Packages do not bind plugin source revision to binary build | Implemented in package provenance PR | Local stale-record, source and product rejection checks. Platform CI pending. |
 | F08 | P2 | Current privacy notice describes obsolete JUCE 5/ROLI behavior | Open | Review current source and replace current notice |
-| F09 | P3 | Decay/sustain long display descriptions swapped | Open | Preserve parameter IDs; verify corrected display names |
+| F09 | P3 | Decay/sustain long display descriptions swapped | Corrected in automation-label PR | Parameter IDs and short labels checked locally. Platform CI pending. |
 | F10 | P2 | Editor focusInitialized flag read before initialization | Initialized to false | Editor construction exercised in successful three-platform regressions at `4da9ca7` |
 
 ## Sequence
@@ -105,3 +105,9 @@ record. Packaging checks the current source revision and both products, checks
 the staged copies before signing, and archives the recorded Git revisions.
 Older build records need a rebuild before packaging. Local builds with tracked
 source edits can still run the tests.
+
+## Envelope automation labels (F09)
+
+Decay now reports decay time and Sustain reports sustain attenuation in host
+automation. Parameter IDs, short labels, ranges, defaults and MIDI mappings
+retain their existing definitions.
