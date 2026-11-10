@@ -7,6 +7,7 @@
 //
 
 #include "TableComponent.h"
+#include "MyColours.h"
 #include "Util.h"
 #include <functional>
 #include <iterator>
@@ -30,7 +31,6 @@ TableComponent::TableComponent(
     table.setModel (this);
 
     // give it a border
-    table.setColour (ListBox::outlineColourId, juce::Colours::grey);
     table.setOutlineThickness (1);
 
     int columnIx = 1;
@@ -142,13 +142,17 @@ void TableComponent::paintRowBackground (
         Graphics& g,
         int rowNumber,
         int /*width*/,
-        int /*height*/,
+        int height,
         bool rowIsSelected
 ) {
     const Colour alternateColour (getLookAndFeel().findColour (ListBox::backgroundColourId)
             .interpolatedWith (getLookAndFeel().findColour (ListBox::textColourId), 0.03f));
     if (rowIsSelected)
-        g.fillAll (juce::Colours::lightblue);
+    {
+        g.fillAll(Colour(MyColours::selectedRow));
+        g.setColour(Colour(MyColours::accent));
+        g.fillRect(0, 0, 3, height);
+    }
     else if (rowNumber % 2)
         g.fillAll (alternateColour);
 }
@@ -176,7 +180,7 @@ void TableComponent::paintCell (
 	if (rowNumber < rows.size()) {
 		TableRow& row{ rows[rowNumber] };
 		String text{ row.getStringContents(columnId) };
-		g.drawText(text, 2, 0, width - 4, height, Justification::centredLeft, true);
+		g.drawText(text, 7, 0, width - 9, height, Justification::centredLeft, true);
 	}
 
     g.setColour (getLookAndFeel().findColour (ListBox::backgroundColourId));
