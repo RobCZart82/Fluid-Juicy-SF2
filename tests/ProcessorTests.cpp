@@ -86,6 +86,27 @@ int main(int argc, char** argv) {
             if (auto* result = findTable(*component.getChildComponent(i))) return result;
         return nullptr;
     };
+    std::function<juce::ComboBox*(Component&)> findBankList = [&](Component& component) -> juce::ComboBox* {
+        if (auto* list = dynamic_cast<juce::ComboBox*>(&component))
+            if (list->getTitle() == "SoundFont bank")
+                return list;
+        for (auto* child : component.getChildren())
+            if (auto* list = findBankList(*child))
+                return list;
+        return nullptr;
+    };
+    auto* bankList = findBankList(*editor);
+    check(bankList != nullptr && bankList->getNumItems() == 2
+              && bankList->getItemText(0) == "Bank 0" && bankList->getItemText(1) == "Bank 8",
+          "bank dropdown lists the actual sparse bank numbers in order");
+    if (bankList != nullptr) {
+        editor->keyPressed(KeyPress(KeyPress::rightKey));
+        check(bankList->getSelectedId() == 9, "right arrow advances from bank 0 to bank 8");
+        editor->keyPressed(KeyPress(KeyPress::rightKey));
+        check(bankList->getSelectedId() == 9, "right arrow stops at the last bank");
+        editor->keyPressed(KeyPress(KeyPress::leftKey));
+        check(bankList->getSelectedId() == 1, "left arrow returns to bank 0");
+    }
     auto* table = findTable(*editor);
     check(table != nullptr && table->getNumRows() == 2, "editor lists both original fixture presets");
     if (table != nullptr) {
