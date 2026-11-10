@@ -285,11 +285,13 @@ void JuicySFAudioProcessor::setStateInformation (const void* data, int sizeInByt
                 if (xmlElement) {
                     {
                         Value value{tree.getPropertyAsValue("width", nullptr)};
-                        value = xmlElement->getIntAttribute("width", value.getValue());
+                        value = juce::jlimit(GuiConstants::minWidth, GuiConstants::maxWidth,
+                            xmlElement->getIntAttribute("width", value.getValue()));
                     }
                     {
                         Value value{tree.getPropertyAsValue("height", nullptr)};
-                        value = xmlElement->getIntAttribute("height", value.getValue());
+                        value = juce::jlimit(GuiConstants::minHeight, GuiConstants::maxHeight,
+                            xmlElement->getIntAttribute("height", value.getValue()));
                     }
                 }
             }
