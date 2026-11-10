@@ -62,19 +62,21 @@ a control-side state mutex. Persistence reads this snapshot, including one
 packed bank/program word. Editor dimensions use a separate packed atomic value.
 No worker writes the GUI's ValueTree or resizes a component.
 
-A coalesced message-thread update builds the GUI bank model and publishes file
-status. An editor opened before queued delivery synchronizes this mirror on its
-own message thread. Parameter widgets and restored editor dimensions use their
-message-thread timers. Normal host automation can still change independent
+The editor's message-thread timer consumes a coalesced dirty flag, builds the GUI
+bank model and publishes file status. An editor synchronizes this mirror on
+opening. The model posts no UI callbacks which could outlive it. Parameter
+widgets and restored editor dimensions also use message-thread timers. Normal host automation can still change independent
 parameters during serialization; no whole-project sample-atomic snapshot is
 claimed.
 
 Request generations govern publication. An unload epoch also suppresses an
 obsolete active/fading engine if an empty candidate is superseded before audio
 can adopt it. This prevents old held notes from fading back on a later reload.
-During shutdown, queued requests are cancelled, the loader is joined, pending UI
-delivery is cancelled, then engines are destroyed off the render stack. Shutdown
-can wait for an already-running decoder call to finish.
+The host must destroy the editor before its processor, as required by JUCE; that
+stops the UI timer. During processor shutdown, queued requests are cancelled,
+the loader is joined, then engines are destroyed off the render stack. No model
+UI callback remains queued. Shutdown can wait for an already-running decoder
+call to finish.
 
 ## Automated acceptance
 

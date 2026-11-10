@@ -16,8 +16,7 @@
 
 using namespace std;
 
-class FluidSynthModel : public AudioProcessorValueTreeState::Listener,
-                        private juce::AsyncUpdater {
+class FluidSynthModel : public AudioProcessorValueTreeState::Listener {
 public:
     explicit FluidSynthModel(AudioProcessorValueTreeState&);
     ~FluidSynthModel() override;
@@ -98,7 +97,7 @@ private:
     void blendRetiringEngine(AudioBuffer<float>&, int start, int count, bool silent);
     void publishCurrentSelection(Engine&);
     void publishParameters();
-    void handleAsyncUpdate() override;
+    void publishUi();
     ChannelSnapshot captureChannel(Engine&);
     void restoreChannel(Engine&, const ChannelSnapshot&, bool releasePedals);
     void resetEngine(Engine&);
@@ -120,7 +119,7 @@ private:
     atomic<float> targetRate{44100};
     atomic<unsigned int> selection{0};
     array<atomic<int>, 128> requestedControllers;
-    atomic<bool> desiredEmpty{true}, publishedHasFont{false}, loading{false};
+    atomic<bool> desiredEmpty{true}, publishedHasFont{false}, loading{false}, uiDirty{true};
     atomic<uint64_t> latestRequest{0}, activeRequest{0}, unloadEpoch{0};
     mutable mutex stateMutex;
     SoundFontState committed;

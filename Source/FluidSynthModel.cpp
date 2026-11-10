@@ -59,7 +59,6 @@ FluidSynthModel::~FluidSynthModel() {
     }
     requestReady.notify_one();
     loader.join();
-    cancelPendingUpdate();
     valueTreeState.removeParameterListener("bank", this);
     valueTreeState.removeParameterListener("preset", this);
     for (const auto& entry : controllerToParam)
@@ -196,7 +195,7 @@ FluidSynthModel::Request FluidSynthModel::newRequest(const String& path, const M
         lock_guard<mutex> stateLock(stateMutex);
         committed.error.clear();
     }
-    triggerAsyncUpdate();
+    uiDirty.store(true);
     return request;
 }
 void FluidSynthModel::requestSoundFont(const String& path, const MemoryBlock& bookmark) {
@@ -271,7 +270,7 @@ bool FluidSynthModel::performLoad(const Request& request) {
             + ". Check that the file exists and is a valid SF2/SF3 bank. The previous bank is kept when available.";
         loading.store(false);
     }
-    triggerAsyncUpdate();
+    uiDirty.store(true);
     return false;
 }
 unique_ptr<FluidSynthModel::Engine> FluidSynthModel::prepareFont(const Request& request) {
@@ -357,7 +356,7 @@ bool FluidSynthModel::publish(unique_ptr<Engine> candidate, const Request& reque
     }
     // Deallocation/bookmark release must not hold even the short request lock.
     delete obsolete;
-    triggerAsyncUpdate();
+    uiDirty.store(true);
     return true;
 }
 
@@ -435,7 +434,7 @@ void FluidSynthModel::applyControls(Engine& engine) {
             // A control change arriving during adoption must win next block.
             if (actual != requested && selection.compare_exchange_strong(expected, actual)) {
                 if (renderingModel == this) publishParameters();
-                else triggerAsyncUpdate(); // Never notify a host while holding the builder/lifecycle lock.
+                else uiDirty.store(true); // Never notify a host while holding the builder/lifecycle lock.
             }
             engine.lastSelection = actual;
         }
@@ -472,9 +471,9 @@ FluidSynthModel::SoundFontState FluidSynthModel::getSoundFontState() const {
 }
 void FluidSynthModel::synchroniseUi() {
     if (auto* manager = juce::MessageManager::getInstanceWithoutCreating())
-        if (manager->isThisTheMessageThread()) handleUpdateNowIfNeeded();
+        if (manager->isThisTheMessageThread() && uiDirty.exchange(false)) publishUi();
 }
-void FluidSynthModel::handleAsyncUpdate() {
+void FluidSynthModel::publishUi() {
 #if JUICY_ENABLE_TEST_HOOKS
     if (!juce::MessageManager::getInstance()->isThisTheMessageThread()) ++uiViolations;
 #endif
@@ -488,7 +487,7 @@ void FluidSynthModel::handleAsyncUpdate() {
     }
     const auto before = selection.load();
     publishParameters();
-    if (selection.load() != before) triggerAsyncUpdate();
+    if (selection.load() != before) uiDirty.store(true);
     if (metadata != displayedMetadata) {
         ValueTree banks{"banks"};
         ValueTree bank;
@@ -547,7 +546,7 @@ void FluidSynthModel::setSampleRate(float rate) {
             publishedHasFont.store(false);
             desiredEmpty.store(true);
         }
-        triggerAsyncUpdate();
+        uiDirty.store(true);
     }
     if (replacement->font >= 0) {
         lock_guard<mutex> stateLock(stateMutex);
@@ -559,7 +558,7 @@ void FluidSynthModel::setSampleRate(float rate) {
         desiredEmpty.store(false);
         auto expected = replacement->builtSelectionRequest;
         selection.compare_exchange_strong(expected, replacement->preparedSelection);
-        triggerAsyncUpdate();
+        uiDirty.store(true);
     }
     restoreChannel(*replacement, state, false);
     active = std::move(replacement);

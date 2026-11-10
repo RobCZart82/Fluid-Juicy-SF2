@@ -53,6 +53,7 @@ JuicySFAudioProcessorEditor::JuicySFAudioProcessorEditor(
 }
 
 void JuicySFAudioProcessorEditor::timerCallback() {
+    processor.getFluidSynthModel().synchroniseUi();
     const auto size = processor.getEditorSize();
     if (size.first != getWidth() || size.second != getHeight()) setSize(size.first, size.second);
 }
