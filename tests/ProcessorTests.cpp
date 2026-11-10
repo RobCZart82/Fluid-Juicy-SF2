@@ -14,6 +14,8 @@ int main(int argc, char** argv) {
     JuicySFAudioProcessor processor;
     processor.prepareToPlay(44100.0, 2048);
     std::unique_ptr<AudioProcessorEditor> editor{processor.createEditor()};
+    check(editor->getWidth() == 575 && editor->getHeight() == 345,
+          "new editor opens at the 575 x 345 minimum");
     editor->keyPressed(KeyPress(KeyPress::leftKey));
     editor->keyPressed(KeyPress(KeyPress::rightKey));
     check(processor.getCurrentProgram() == 0, "empty-bank navigation is safe before loading");
@@ -28,6 +30,21 @@ int main(int argc, char** argv) {
     MemoryBlock restored;
     processor.getStateInformation(restored);
     check(saved == restored, "default project state round trip");
+
+    auto* uiState = xml->getChildByName("uiState");
+    const auto restoreEditorSize = [&](int width, int height) {
+        uiState->setAttribute("width", width);
+        uiState->setAttribute("height", height);
+        MemoryBlock editorState;
+        AudioProcessor::copyXmlToBinary(*xml, editorState);
+        processor.setStateInformation(editorState.getData(), static_cast<int>(editorState.getSize()));
+    };
+    restoreEditorSize(500, 300);
+    check(editor->getWidth() == 575 && editor->getHeight() == 345,
+          "legacy editor size is raised to the new minimum");
+    restoreEditorSize(720, 450);
+    check(editor->getWidth() == 720 && editor->getHeight() == 450,
+          "larger saved editor size is preserved");
 
     if (argc != 2) {
         check(false, "generated SoundFont fixture argument required");
