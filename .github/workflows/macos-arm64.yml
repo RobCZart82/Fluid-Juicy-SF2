@@ -18,6 +18,8 @@ jobs:
         run: python3 scripts/build.py --arch arm64 --jobs 3
       - name: Verify architecture and package development artifact
         run: python3 scripts/package_macos.py
+      - name: Verify exported sources without Git metadata
+        run: python3 scripts/check_source_bundle.py build/arm64/distribution/corresponding-source.tar.gz
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: fluid-juicy-sf2-macos-arm64-development

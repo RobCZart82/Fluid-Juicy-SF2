@@ -3,6 +3,7 @@
 //
 
 #pragma once
+#include <atomic>
 
 #include "JuceHeader.h"
 #include <map>
@@ -411,7 +412,7 @@ private:
 
     Array<int> mouseOverNotes, mouseDownNotes;
     BigInteger keysPressed, keysCurrentlyDrawnDown;
-    bool shouldCheckState;
+    std::atomic<bool> shouldCheckState;
 
     int rangeStart, rangeEnd;
     float firstKey;

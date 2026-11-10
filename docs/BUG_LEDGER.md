@@ -4,6 +4,8 @@ Audit baseline: `02a3bad63d70e32249a992cb29332c86c00366d3` (2026-11-10).
 See [the complete audit](AUDIT-2026-11-10.md). Status records implementation and
 validation separately; CI is not manual REAPER acceptance.
 
+Current follow-up: [audit remediation from baseline 8f33ca5](AUDIT_REMEDIATION.md).
+
 | ID | Priority | Issue | Implementation | Validation |
 | --- | --- | --- | --- | --- |
 | F01 | P1 | Empty-bank left/right navigation divides by zero | Implemented in this branch | Passed at `4da9ca7` on macOS arm64/Intel and Windows x64; see evidence below |
@@ -11,8 +13,8 @@ validation separately; CI is not manual REAPER acceptance.
 | F03 | P2 | MIDI Program Change can undo preceding Bank Select | Implemented in bank/program recovery branch | Two-bank 440/880 Hz, same-PC and recall regressions passed at `3741a6a` |
 | F04 | P2 | Failed replacement discards working bank | Implemented in bank/program recovery branch | Missing/corrupt files, failed recall and successful replacement regressions passed at `3741a6a` |
 | F05 | P2 | Loading is synchronous and shared engine state is not handed over safely | Open | Loader design and real-time stress tests required |
-| F06 | P2 | Host is told the instrument has no release/effect tail | Open | Tail-render test and reporting policy required |
-| F07 | P2 | Packages do not bind plugin source revision to binary build | Implemented in package provenance PR | Local stale-record, source and product rejection checks. Platform CI pending. |
+| F06 | P2 | Host is told the instrument has no release/effect tail | Unbounded tail reporting implemented in audit remediation | Long-release regression passed locally; manual REAPER render acceptance remains open |
+| F07 | P2 | Packages do not bind plugin source revision to binary build | Implemented in package provenance PR | Local rejection checks and subsequent three-platform packaging CI passed; see audit remediation for the separate source-archive rebuild issue. |
 | F08 | P2 | Current privacy notice describes obsolete JUCE 5/ROLI behavior | Privacy notice updated | Reviewed current CMake configuration, SoundFont loading and project-state serialization |
 | F09 | P3 | Decay/sustain long display descriptions swapped | Corrected in automation-label PR | Parameter IDs and short labels checked locally. Three-platform CI passed at `359ab1e`. |
 | F10 | P2 | Editor focusInitialized flag read before initialization | Initialized to false | Editor construction exercised in successful three-platform regressions at `4da9ca7` |

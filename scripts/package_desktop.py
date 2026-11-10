@@ -4,6 +4,7 @@ import argparse
 import copy
 import hashlib
 import json
+import io
 from pathlib import Path
 import platform
 import shutil
@@ -49,20 +50,32 @@ def archive_sources(target, sources, source_commit):
     for _, repository, revision in repositories:
         if clean_revision(repository) != revision:
             raise RuntimeError(f'Source checkout differs from the build revision: {repository}')
+    manifest = {'format': 1, 'repositories': {}}
     with tarfile.open(target, 'w:gz') as destination:
         for prefix, repository, revision in repositories:
+            files = {}
+            manifest['repositories'][prefix] = {'revision': revision, 'files': files}
             process = subprocess.Popen(['git', '-C', str(repository), 'archive', revision], stdout=subprocess.PIPE)
             try:
                 with tarfile.open(fileobj=process.stdout, mode='r|') as archive:
                     for entry in archive:
                         member = copy.copy(entry)
                         member.name = prefix + '/' + entry.name
-                        destination.addfile(member, archive.extractfile(entry) if entry.isfile() else None)
+                        data = archive.extractfile(entry).read() if entry.isfile() else None
+                        if data is not None:
+                            files[entry.name] = {'sha256': hashlib.sha256(data).hexdigest()}
+                        elif entry.issym():
+                            files[entry.name] = {'symlink': entry.linkname}
+                        destination.addfile(member, io.BytesIO(data) if data is not None else None)
             finally:
                 process.stdout.close()
                 code = process.wait()
             if code:
                 raise RuntimeError(f'Source archive failed: {repository}')
+        data = json.dumps(manifest, indent=2).encode('utf-8')
+        member = tarfile.TarInfo('source-manifest.json')
+        member.size = len(data)
+        destination.addfile(member, io.BytesIO(data))
 
 
 def main():
@@ -76,6 +89,8 @@ def main():
         parser.error('Supported packages: macOS arm64/x86_64 and Windows x86_64')
     build = args.build_dir.resolve() / args.arch
     sources = (args.source_dir or args.build_dir.resolve() / 'sources').resolve()
+    if not (ROOT / '.git').exists():
+        raise RuntimeError('Packaging requires Git checkouts; exported bundles support rebuilding only')
     record_path = build / 'build-record.json'
     if not record_path.is_file():
         raise RuntimeError('No successful build record. Build from a clean commit before packaging.')

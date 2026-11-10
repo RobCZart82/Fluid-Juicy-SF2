@@ -44,7 +44,7 @@ In standalone mode, select your audio device and MIDI input under
 
 ## Build from source
 
-Requires **CMake 3.24+**, Python 3, Git and a C++17 toolchain:
+Requires **CMake 3.24+**, Python 3.9+, Git and a C++17 toolchain:
 Xcode Command Line Tools on macOS, or Visual Studio 2022 with Desktop C++ tools
 on Windows.
 

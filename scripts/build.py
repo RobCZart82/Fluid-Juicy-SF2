@@ -36,16 +36,56 @@ def source(name, directory):
         run('git', '-C', path, 'remote', 'add', 'origin', url)
         run('git', '-C', path, 'fetch', '--depth=1', 'origin', sha)
         run('git', '-C', path, 'checkout', '--detach', 'FETCH_HEAD')
-    actual = subprocess.check_output(['git', '-C', str(path), 'rev-parse', 'HEAD'], text=True).strip()
+    actual = clean_revision(path)
     if actual != sha:
         raise RuntimeError(f'{name}: expected {sha}, got {actual}; use a separate source directory')
-    if subprocess.check_output(['git', '-C', str(path), 'status', '--porcelain', '--untracked-files=no'], text=True).strip():
-        raise RuntimeError(f'{name}: modified dependency source; refusing an unrecorded build')
     if name == 'fluidsynth':
-        run('git', '-C', path, 'submodule', 'update', '--init', '--depth=1', '--', 'gcem', 'signalsmith-audio-basics')
+        if (path / '.git').exists():
+            run('git', '-C', path, 'submodule', 'update', '--init', '--depth=1', '--', 'gcem', 'signalsmith-audio-basics')
+        else:
+            for child in ['gcem', 'signalsmith-audio-basics']:
+                if not clean_revision(path / child):
+                    raise RuntimeError(f'Modified exported submodule: {child}')
     return path
 
+def exported_revision(repository):
+    """Verify recorded files in our own exported bundle, without Git metadata."""
+    repository = Path(repository).resolve()
+    bundle = ROOT.resolve().parent
+    manifest_path = bundle / 'source-manifest.json'
+    if not manifest_path.is_file():
+        raise RuntimeError('No Git checkout or source-manifest.json; use a clone or an exported source bundle')
+    manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    if manifest.get('format') != 1:
+        raise RuntimeError('Unsupported source manifest format')
+    try:
+        name = repository.relative_to(bundle).as_posix()
+        entry = manifest['repositories'][name]
+    except (ValueError, KeyError) as error:
+        raise RuntimeError(f'Source repository is not in the export manifest: {repository}') from error
+    for relative, expected in entry['files'].items():
+        path = repository / relative
+        # The manifest is a path/hash index, never permission to escape the bundle.
+        if Path(relative).is_absolute() or '..' in Path(relative).parts:
+            raise RuntimeError('Unsafe path in source manifest')
+        if 'symlink' in expected:
+            if not path.is_symlink() or os.readlink(path) != expected['symlink']:
+                return None
+        elif not path.is_file() or path.is_symlink():
+            return None
+        else:
+            digest = hashlib.sha256()
+            with path.open('rb') as stream:
+                for block in iter(lambda: stream.read(1024 * 1024), b''):
+                    digest.update(block)
+            if digest.hexdigest() != expected['sha256']:
+                return None
+    return entry['revision']
+
+
 def clean_revision(repository):
+    if not (Path(repository) / '.git').exists():
+        return exported_revision(repository)
     revision = subprocess.check_output(
         ['git', '-C', str(repository), 'rev-parse', 'HEAD'], text=True).strip()
     if subprocess.check_output(
@@ -90,6 +130,8 @@ def main():
     parser.add_argument('--cmake', default='cmake')
     parser.add_argument('--generator', default=None)
     parser.add_argument('--jobs', type=int, default=min(os.cpu_count() or 2, 8))
+    parser.add_argument('--verify-sources-only', action='store_true',
+                        help='Validate the checkout/export and every pinned dependency without compiling')
     args = parser.parse_args()
     mac = platform.system() == 'Darwin'
     arch = args.arch or ('arm64' if mac else 'x86_64')
@@ -97,10 +139,24 @@ def main():
         parser.error('This update targets macOS arm64; Windows validation is x64 only')
     build = args.build_dir.resolve() / arch
     record_path = build / 'build-record.json'
-    record_path.unlink(missing_ok=True)
+    if not args.verify_sources_only:
+        record_path.unlink(missing_ok=True)
     revision = clean_revision(ROOT)
     prefix = build / 'prefix'
-    sources = (args.source_dir or args.build_dir.resolve() / 'sources').resolve()
+    exported_sources = ROOT.parent / 'dependencies'
+    default_sources = exported_sources if (ROOT.parent / 'source-manifest.json').is_file() else args.build_dir.resolve() / 'sources'
+    sources = (args.source_dir or default_sources).resolve()
+    if args.verify_sources_only:
+        if revision is None:
+            raise RuntimeError('Modified plugin sources')
+        for name in PINS:
+            source(name, sources)
+        if 'fluidsynth' in PINS and not (ROOT / '.git').exists():
+            for name in ['gcem', 'signalsmith-audio-basics']:
+                if not clean_revision(sources / 'fluidsynth' / name):
+                    raise RuntimeError(f'Modified exported submodule: {name}')
+        print('Plugin and all pinned dependency sources verified.')
+        return
     common = ['-DCMAKE_BUILD_TYPE=Release', '-DBUILD_SHARED_LIBS=OFF',
               '-DCMAKE_POSITION_INDEPENDENT_CODE=ON', '-DCMAKE_INSTALL_LIBDIR=lib',
               f'-DCMAKE_INSTALL_PREFIX={prefix}', f'-DCMAKE_PREFIX_PATH={prefix}',

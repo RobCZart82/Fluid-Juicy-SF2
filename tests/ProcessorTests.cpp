@@ -230,5 +230,143 @@ int main(int argc, char** argv) {
     restoreXml(missingRecall, *brokenProject);
     check(saveXml(missingRecall)->getChildByName("soundFont")->getStringAttribute("path") == missing.getFullPathName(),
           "fresh missing-media recall retains its reference for relocation");
+    // Audit reliability regressions use fresh engines so prior voices/effects
+    // cannot hide a failure. Assert public behavior, not internal API calls.
+    const auto energy = [](const AudioBuffer<float>& block) {
+        double sum = 0;
+        for (int c = 0; c < block.getNumChannels(); ++c)
+            for (int i = 0; i < block.getNumSamples(); ++i) {
+                const double sample = block.getSample(c, i);
+                sum += sample * sample;
+            }
+        return sum;
+    };
+    const auto loadFixture = [&](JuicySFAudioProcessor& target) {
+        target.prepareToPlay(44100.0, 1024);
+        check(target.getFluidSynthModel().loadSoundFont(originalPath, MemoryBlock()), "reliability fixture loads");
+    };
+    {
+        JuicySFAudioProcessor mono;
+        auto layout = mono.getBusesLayout();
+        layout.outputBuses.set(0, AudioChannelSet::mono());
+        check(mono.setBusesLayout(layout), "mono host layout is supported");
+        loadFixture(mono);
+        AudioBuffer<float> block(1, 4097); // larger than the prepare size and scratch quantum
+        MidiBuffer events;
+        events.addEvent(MidiMessage::noteOn(1, 69, static_cast<juce::uint8>(100)), 17);
+        mono.processBlock(block, events);
+        check(std::isfinite(energy(block)) && energy(block) > 1.0e-5,
+              "mono renders finite audible output with an oversized odd block");
+    }
+    {
+        JuicySFAudioProcessor resetTarget;
+        loadFixture(resetTarget);
+        AudioBuffer<float> block(2, 1024);
+        MidiBuffer events;
+        events.addEvent(MidiMessage::controllerEvent(1, 64, 127), 0);
+        events.addEvent(MidiMessage::noteOn(1, 69, static_cast<juce::uint8>(100)), 0);
+        resetTarget.processBlock(block, events);
+        check(energy(block) > 1.0e-5, "reset fixture is initially audible");
+        const auto playingEnergy = energy(block);
+        resetTarget.reset();
+        resetTarget.processBlock(block, events);
+        check(energy(block) < playingEnergy * 0.01, "host reset stops the held voice immediately");
+        // FluidSynth's effect reset may emit a brief mixer residual. It must
+        // settle by the next block, rather than resuming the held loop forever.
+        resetTarget.processBlock(block, events);
+        check(energy(block) < 1.0e-10, "host reset leaves no sustained voice or effect tail");
+        events.addEvent(MidiMessage::noteOn(1, 69, static_cast<juce::uint8>(100)), 0);
+        resetTarget.processBlock(block, events);
+        resetTarget.releaseResources();
+        resetTarget.prepareToPlay(44100.0, 1024);
+        resetTarget.processBlock(block, events);
+        check(energy(block) < 1.0e-10, "release and same-rate prepare do not resume an old voice");
+        events.addEvent(MidiMessage::noteOn(1, 69, static_cast<juce::uint8>(100)), 0);
+        resetTarget.processBlock(block, events);
+        check(energy(block) > 1.0e-5, "new notes still play after reset");
+        JuicySFAudioProcessor blank;
+        restoreXml(resetTarget, *saveXml(blank));
+        auto cleared = saveXml(resetTarget);
+        check(!resetTarget.getFluidSynthModel().hasLoadedSoundFont()
+                  && cleared->getChildByName("soundFont")->getStringAttribute("path").isEmpty(),
+              "blank project state unloads the working bank and clears its saved reference");
+        resetTarget.processBlock(block, events);
+        check(energy(block) < 1.0e-10, "blank project state leaves no old notes or effects");
+    }
+    {
+        JuicySFAudioProcessor muted;
+        loadFixture(muted);
+        AudioBuffer<float> block(2, 1024);
+        MidiBuffer events;
+        events.addEvent(MidiMessage::controllerEvent(1, 7, 0), 0);
+        muted.processBlock(block, events);
+        for (const double rate : {48000.0, 96000.0, 44100.0}) {
+            muted.prepareToPlay(rate, 1024);
+            events.addEvent(MidiMessage::noteOn(1, 69, static_cast<juce::uint8>(100)), 0);
+            muted.processBlock(block, events);
+            check(energy(block) < 1.0e-6, "CC7 mute survives a host sample-rate change");
+        }
+        events.addEvent(MidiMessage::controllerEvent(1, 7, 100), 0);
+        events.addEvent(MidiMessage::noteOn(1, 69, static_cast<juce::uint8>(100)), 0);
+        muted.processBlock(block, events);
+        check(energy(block) > 1.0e-5, "CC7 can unmute the rebuilt synth");
+    }
+    {
+        const auto effectTail = [&](int send) {
+            JuicySFAudioProcessor fx;
+            loadFixture(fx);
+            AudioBuffer<float> block(2, 1024);
+            MidiBuffer events;
+            events.addEvent(MidiMessage::controllerEvent(1, 91, send), 0);
+            events.addEvent(MidiMessage::controllerEvent(1, 93, send), 0);
+            events.addEvent(MidiMessage::noteOn(1, 69, static_cast<juce::uint8>(100)), 0);
+            for (int i = 0; i < 24; ++i) fx.processBlock(block, events);
+            events.addEvent(MidiMessage::controllerEvent(1, 120, 0), 0);
+            fx.processBlock(block, events);
+            double tail = 0;
+            for (int i = 0; i < 8; ++i) { fx.processBlock(block, events); tail += energy(block); }
+            return tail;
+        };
+        const double dry = effectTail(0);
+        const double wet = effectTail(127);
+        check(dry < 1.0e-10 && wet > 1.0e-5, "CC91/93 generate audible wet output rather than discarded effects");
+        JuicySFAudioProcessor releaseTail;
+        loadFixture(releaseTail);
+        for (auto* parameter : releaseTail.getParameters())
+            if (auto* id = dynamic_cast<AudioProcessorParameterWithID*>(parameter))
+                if (id->paramID == "release") id->setValueNotifyingHost(1.0f);
+        AudioBuffer<float> block(2, 1024);
+        MidiBuffer events;
+        events.addEvent(MidiMessage::noteOn(1, 69, static_cast<juce::uint8>(100)), 0);
+        releaseTail.processBlock(block, events);
+        events.addEvent(MidiMessage::noteOff(1, 69), 0);
+        releaseTail.processBlock(block, events);
+        releaseTail.processBlock(block, events);
+        check(energy(block) > 1.0e-5 && releaseTail.getTailLengthSeconds() > 1.0,
+              "host tail reporting accounts for a long audible release");
+    }
+    // FluidSynth 2.6.2 buffers 64 samples internally. Splitting the host block
+    // does not make event dispatch sample-accurate. Lock down the documented
+    // 0..63-sample quantization instead of claiming arbitrary-offset precision.
+    for (const int hostBlock : {32, 127, 512}) {
+        for (const int offset : {0, 1, 17, 63, 64, 65, 127, 257}) {
+            JuicySFAudioProcessor timing;
+            loadFixture(timing);
+            int firstSignal = -1;
+            for (int start = 0; start < 512; start += hostBlock) {
+                const int count = juce::jmin(hostBlock, 512 - start);
+                AudioBuffer<float> block(2, count);
+                MidiBuffer events;
+                if (offset >= start && offset < start + count)
+                    events.addEvent(MidiMessage::noteOn(1, 69, static_cast<juce::uint8>(100)), offset - start);
+                timing.processBlock(block, events);
+                for (int i = 0; i < count; ++i)
+                    if (firstSignal < 0 && std::abs(block.getSample(0, i)) > 1.0e-8f)
+                        firstSignal = start + i;
+            }
+            check(firstSignal >= offset + 1 && firstSignal <= offset + 64,
+                  "unaligned MIDI note stays within the documented FluidSynth quantum across host blocks");
+        }
+    }
     return failures == 0 ? 0 : 1;
 }

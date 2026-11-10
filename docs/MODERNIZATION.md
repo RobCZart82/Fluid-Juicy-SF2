@@ -47,3 +47,44 @@ and preset selection succeed. Bank and program selected by MIDI are mirrored to
 project parameters without selecting an older UI bank again. See F03/F04 in the
 [ledger](BUG_LEDGER.md) for exact validation status; asynchronous loading remains
 F05 and is not implemented by this batch.
+
+## Runtime reliability follow-up
+
+See [audit remediation](AUDIT_REMEDIATION.md) for implementation and validation
+status. Mono output is mixed from a stereo scratch buffer; reverb/chorus returns
+are mixed into the stereo pair. Wet output can be louder than the old dry-only
+path, so compare levels before replacing an installed preview. No limiter or
+normalization has been silently added.
+
+FluidSynth 2.6.2 applies events at internal 64-sample render boundaries. Host-block
+splitting retains offsets but does not remove this quantization: additional
+Note On timing error is 0..63 samples (up to 1.43 ms at 44.1 kHz). Regressions use
+unaligned offsets and host blocks of 32, 127 and 512 samples. Full sample-accurate
+Note On/Off, CC and program dispatch remains an open engine-level requirement.
+
+Tail reporting is unbounded, rather than a false zero or a guessed short finite
+time. The JUCE VST3 wrapper reports kInfiniteTail. Choose an explicit end/tail
+length for offline renders in hosts which cannot auto-stop an unbounded tail.
+Reset stops active voices and releases hold pedals; FluidSynth may emit a brief
+mixer residual before settling. Ordinary controller values, generator offsets
+and pitch-bend sensitivity/value survive engine sample-rate reconstruction.
+In-progress RPN/NRPN selection and custom tuning/SysEx state are not fully
+preserved; they need the future channel-state model. This is not full GM2 recall.
+
+## Rebuild an exported source bundle
+
+Extract the complete corresponding-source.tar.gz, keeping fluid-juicy-sf2/,
+dependencies/ and source-manifest.json together. From fluid-juicy-sf2/ run:
+
+```sh
+python3 scripts/build.py --verify-sources-only
+python3 scripts/build.py --arch arm64
+```
+
+Use --arch x86_64 for Intel macOS/Windows and a short --build-dir on Windows.
+The exporter records file hashes and revisions; the builder verifies those
+without requiring .git metadata or downloading the included dependencies.
+Compiler, CMake, Python and platform SDKs remain external prerequisites.
+Packaging a new binary distribution still requires actual clean Git checkouts.
+CI verifies the exported entry point outside the checkout; full archive rebuild
+acceptance is recorded separately from manifest verification.
