@@ -37,7 +37,11 @@ int main(int argc, char** argv) {
         uiState->setAttribute("height", height);
         MemoryBlock editorState;
         AudioProcessor::copyXmlToBinary(*xml, editorState);
+        // The console runner has no host message loop to deliver Value callbacks.
+        // Reopen the editor to read the restored dimensions as a reopened project does.
+        editor.reset();
         processor.setStateInformation(editorState.getData(), static_cast<int>(editorState.getSize()));
+        editor.reset(processor.createEditor());
     };
     restoreEditorSize(500, 300);
     check(editor->getWidth() == 575 && editor->getHeight() == 345,
