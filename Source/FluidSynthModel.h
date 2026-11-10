@@ -23,7 +23,7 @@ public:
      ~FluidSynthModel();
 
     void initialise();
-    
+
     int getChannel();
 
     void setControllerValue(int controller, int value);
@@ -32,10 +32,10 @@ public:
 
 
     void setSampleRate(float sampleRate);
-    
+
     //==============================================================================
     virtual void parameterChanged (const String& parameterID, float newValue) override;
-    
+
     // Explicit request keeps path/bookmark changes transactional rather than
     // loading halfway through separate ValueTree property notifications.
     bool loadSoundFont(const String& path, const MemoryBlock& bookmark);
@@ -77,7 +77,7 @@ private:
     float currentSampleRate;
 
     bool replaceFont(const String& path);
-    
+
     int sfont_id;
     unsigned int channel;
 
