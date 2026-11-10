@@ -79,8 +79,14 @@ int main(int argc, char** argv) {
         render.join();
         check(processor.getCurrentProgram() == 1, "worker MIDI updates the processor program");
         check(table->getSelectedRow() == beforeSelection, "worker MIDI leaves the editor untouched until message-thread refresh");
-        juce::Thread::sleep(80);
-        juce::Timer::callPendingTimersSynchronously();
+        // A console regression runner has no host event loop. Pump timer
+        // callbacks until delivery (bounded), rather than assuming one 80 ms
+        // sleep also advances JUCE's internal timer-thread countdown.
+        const auto deadline = juce::Time::getMillisecondCounterHiRes() + 1500.0;
+        while (table->getSelectedRow() != 1 && juce::Time::getMillisecondCounterHiRes() < deadline) {
+            juce::Timer::callPendingTimersSynchronously();
+            juce::Thread::sleep(5);
+        }
         check(table->getSelectedRow() == 1, "message-thread timer reflects the new program");
     }
     // The same loaded font must survive host sample-rate changes. Counting

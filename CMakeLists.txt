@@ -69,4 +69,5 @@ if(JUICY_BUILD_TESTS)
     execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/make_fixture.py"
         "${CMAKE_BINARY_DIR}/test-sine.sf2" COMMAND_ERROR_IS_FATAL ANY)
     add_test(NAME processor-regressions COMMAND JuicyRegressionTests "${CMAKE_BINARY_DIR}/test-sine.sf2")
+    set_tests_properties(processor-regressions PROPERTIES TIMEOUT 30)
 endif()

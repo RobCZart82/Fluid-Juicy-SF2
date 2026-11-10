@@ -15,7 +15,6 @@ validation separately; CI is not manual REAPER acceptance.
 | F07 | P2 | Packages do not bind plugin source revision to binary build | Open | Stale-build/source mismatch regressions needed |
 | F08 | P2 | Current privacy notice describes obsolete JUCE 5/ROLI behavior | Open | Review current source and replace current notice |
 | F09 | P3 | Decay/sustain long display descriptions swapped | Open | Preserve parameter IDs; verify corrected display names |
-
 | F10 | P2 | Editor focusInitialized flag read before initialization | Initialized to false | Editor construction exercised; CI pending |
 
 ## Sequence
@@ -41,3 +40,14 @@ F10: initialize the editor focus flag, preserving the existing keyboard behavior
 This batch does not claim asynchronous loading or full thread safety for bank
 replacement/state recall (F05). F03-F09 remain open. No manual REAPER acceptance
 or plugin-folder installation has been performed.
+
+### Initial validation attempt
+
+At code revision `1c27e3a`, native ARM macOS compiled VST3, standalone and the
+regression executable. Empty navigation, worker-side isolation, state recall,
+rendering and rate-change assertions passed. The timer-delivery assertion failed
+because the console harness used a single fixed delay without an event loop.
+The revised harness repeatedly pumps JUCE timer callbacks with a 1.5-second
+bound and retains both the no-worker-mutation and eventual-GUI-update assertions.
+CTest has a 30-second timeout so a deadlock cannot stall an entire CI job.
+Validation of the revised revision remains pending.
