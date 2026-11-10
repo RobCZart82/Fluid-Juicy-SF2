@@ -14,9 +14,16 @@ def generate(path):
     info = chunk(b'LIST', b'INFO' + chunk(b'ifil', struct.pack('<HH', 2, 1)) +
                  chunk(b'isng', b'EMU8000\0') + chunk(b'INAM', b'Juicy test sine\0'))
     sdta = chunk(b'LIST', b'sdta' + chunk(b'smpl', pcm + b'\0' * 92))
-    phdr = struct.pack('<20sHHHIII', name('Sine'), 0, 0, 0, 0, 0, 0) + struct.pack('<20sHHHIII', name('Sine 2'), 1, 0, 1, 0, 0, 0) + struct.pack('<20sHHHIII', name('EOP'), 0, 0, 2, 0, 0, 0)
-    pdta = chunk(b'phdr', phdr) + chunk(b'pbag', struct.pack('<HHHHHH', 0, 0, 1, 0, 2, 0))
-    pdta += chunk(b'pmod', b'\0' * 10) + chunk(b'pgen', struct.pack('<HHHHHH', 41, 0, 41, 0, 0, 0))
+    # Bank 8 is an octave higher, so tests can verify the selected bank by audio.
+    presets = [('Sine', 0, 0), ('Sine 2', 1, 0), ('Octave', 0, 8), ('Octave 2', 1, 8)]
+    phdr = b''.join(struct.pack('<20sHHHIII', name(n), pr, bank, i, 0, 0, 0)
+                    for i, (n, pr, bank) in enumerate(presets))
+    phdr += struct.pack('<20sHHHIII', name('EOP'), 0, 0, len(presets), 0, 0, 0)
+    pbag = b''.join(struct.pack('<HH', index, 0) for index in [0, 1, 2, 4, 6])
+    pgen = b''.join(struct.pack('<HH', op, val) for op, val in
+                    [(41, 0), (41, 0), (51, 12), (41, 0), (51, 12), (41, 0), (0, 0)])
+    pdta = chunk(b'phdr', phdr) + chunk(b'pbag', pbag)
+    pdta += chunk(b'pmod', b'\0' * 10) + chunk(b'pgen', pgen)
     pdta += chunk(b'inst', struct.pack('<20sH20sH', name('Sine'), 0, name('EOI'), 1))
     pdta += chunk(b'ibag', struct.pack('<HHHH', 0, 0, 2, 0)) + chunk(b'imod', b'\0' * 10)
     pdta += chunk(b'igen', struct.pack('<HHHHHH', 54, 1, 53, 0, 0, 0))

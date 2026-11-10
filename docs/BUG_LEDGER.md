@@ -8,8 +8,8 @@ validation separately; CI is not manual REAPER acceptance.
 | --- | --- | --- | --- | --- |
 | F01 | P1 | Empty-bank left/right navigation divides by zero | Implemented in this branch | Passed at `4da9ca7` on macOS arm64/Intel and Windows x64; see evidence below |
 | F02 | P1 | Parameter callbacks directly mutate GUI; host program change takes message lock | Implemented for parameter-driven updates; loading callbacks remain F05 | Passed at `4da9ca7` on all three CI targets; manual REAPER acceptance open |
-| F03 | P2 | MIDI Program Change can undo preceding Bank Select | Open | Two-bank regression needed |
-| F04 | P2 | Failed replacement discards working bank | Open | Missing/corrupt-bank recovery regression needed |
+| F03 | P2 | MIDI Program Change can undo preceding Bank Select | Implemented in bank/program recovery branch | Two-bank 440/880 Hz, same-PC and recall regressions passed at `3741a6a` |
+| F04 | P2 | Failed replacement discards working bank | Implemented in bank/program recovery branch | Missing/corrupt files, failed recall and successful replacement regressions passed at `3741a6a` |
 | F05 | P2 | Loading is synchronous and shared engine state is not handed over safely | Open | Loader design and real-time stress tests required |
 | F06 | P2 | Host is told the instrument has no release/effect tail | Open | Tail-render test and reporting policy required |
 | F07 | P2 | Packages do not bind plugin source revision to binary build | Open | Stale-build/source mismatch regressions needed |
@@ -71,3 +71,28 @@ Date: 2026-11-10.
 Next bounded implementation unit: F03/F04 bank/program state and transactional
 replacement, followed by the F05 loader architecture. Keep these separate from
 UI layout changes and preserve the no-bundled-bank distribution policy.
+
+## Bank/program recovery batch
+
+Base: merged PR #6, `48062aa1730eac9716db8019859df19641f1c8d5`.
+
+- F03: publish the engine's selected bank and program together after MIDI Program
+  Change, with same-thread callback feedback suppressed only for that model.
+  UI/host parameter requests on other threads are not globally suppressed.
+- F04: explicitly request a path/bookmark pair; try loading/selecting the candidate
+  before removing the old font. Failed replacement preserves the old bank,
+  program, saved path and bookmark, and exposes a transient user-readable error.
+  A fresh missing-media project still retains its requested path for relocation.
+- File-picker updates and error notices are delivered asynchronously on the UI
+  thread. No browser/editor layout change or automatic directory scan is added.
+- macOS bookmark scopes of replaced fonts are retained until engine rebuild or
+  destruction, because FluidSynth can retain old voices. This needs subsequent
+  F05 lifetime/stress coverage; it is not a claim of a finished real-time loader.
+- The generated bank now has two presets in bank 0 at 440 Hz and two in bank 8
+  at 880 Hz. Tests verify actual rendered pitch, same-PC bank switches, project
+  recall, failed replacement recovery and commit of a successful replacement.
+
+Loading remains synchronous. F05-F09 and manual REAPER acceptance remain open.
+At `3741a6a9ff5bd184482bcc5a18f6fa0ede27eb07`, builds, regressions and
+package verification passed on [Apple Silicon](https://github.com/RobCZart82/Fluid-Juicy-SF2/actions/runs/42770114929)
+and [macOS Intel / Windows x64](https://github.com/RobCZart82/Fluid-Juicy-SF2/actions/runs/42770114899).
