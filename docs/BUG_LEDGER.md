@@ -13,8 +13,8 @@ validation separately; CI is not manual REAPER acceptance.
 | F05 | P2 | Loading is synchronous and shared engine state is not handed over safely | Open | Loader design and real-time stress tests required |
 | F06 | P2 | Host is told the instrument has no release/effect tail | Open | Tail-render test and reporting policy required |
 | F07 | P2 | Packages do not bind plugin source revision to binary build | Implemented in package provenance PR | Local stale-record, source and product rejection checks. Platform CI pending. |
-| F08 | P2 | Current privacy notice describes obsolete JUCE 5/ROLI behavior | Open | Review current source and replace current notice |
-| F09 | P3 | Decay/sustain long display descriptions swapped | Corrected in automation-label PR | Parameter IDs and short labels checked locally. Platform CI pending. |
+| F08 | P2 | Current privacy notice describes obsolete JUCE 5/ROLI behavior | Privacy notice updated | Reviewed current CMake configuration, SoundFont loading and project-state serialization |
+| F09 | P3 | Decay/sustain long display descriptions swapped | Corrected in automation-label PR | Parameter IDs and short labels checked locally. Three-platform CI passed at `359ab1e`. |
 | F10 | P2 | Editor focusInitialized flag read before initialization | Initialized to false | Editor construction exercised in successful three-platform regressions at `4da9ca7` |
 
 ## Sequence
@@ -111,3 +111,12 @@ source edits can still run the tests.
 Decay now reports decay time and Sustain reports sustain attenuation in host
 automation. Parameter IDs, short labels, ranges, defaults and MIDI mappings
 retain their existing definitions.
+
+PR #9 merged at `7052564`. At `359ab1e`, builds, regressions and package checks passed on [Apple Silicon](https://github.com/RobCZart82/Fluid-Juicy-SF2/actions/runs/42778332810) and [macOS Intel / Windows x64](https://github.com/RobCZart82/Fluid-Juicy-SF2/actions/runs/42778332804).
+
+## Privacy notice (F08)
+
+The current notice documents local SoundFont loading and the path, settings,
+editor size and optional macOS file-access bookmark stored in plugin state.
+The source review covered the file picker, loader, state serialization and
+build configuration. This was a source review without a network traffic capture.
