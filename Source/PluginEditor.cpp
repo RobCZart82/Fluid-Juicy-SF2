@@ -21,7 +21,7 @@ JuicySFAudioProcessorEditor::JuicySFAudioProcessorEditor(
 , valueTreeState{valueTreeState}
 , midiKeyboard{p.keyboardState, SurjectiveMidiKeyboardComponent::horizontalKeyboard}
 , tablesComponent{valueTreeState}
-, filePicker{valueTreeState}
+, filePicker{valueTreeState, p.getFluidSynthModel()}
 , slidersComponent{valueTreeState, p.getFluidSynthModel()}
 {
     // set resize limits for this plug-in

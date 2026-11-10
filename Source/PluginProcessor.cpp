@@ -272,18 +272,11 @@ void JuicySFAudioProcessor::setStateInformation (const void* data, int sizeInByt
             {
                 XmlElement* xmlElement{xmlState->getChildByName("soundFont")};
                 if (xmlElement) {
-                    ValueTree tree{valueTreeState.state.getChildWithName("soundFont")};
-                    {
-                        Value value{tree.getPropertyAsValue("path", nullptr)};
-                        value = xmlElement->getStringAttribute("path", value.getValue());
-                    }
-                    {
-                        Value value{tree.getPropertyAsValue("bookmark", nullptr)};
-                        jassert(value.getValue().isBinaryData());
-                        MemoryBlock buffer;
-                        buffer.fromBase64Encoding(xmlElement->getStringAttribute("bookmark", value.getValue()));
-                        value = buffer;
-                    }
+                    MemoryBlock bookmark;
+                    bookmark.fromBase64Encoding(xmlElement->getStringAttribute("bookmark"));
+                    if (!fluidSynthModel.loadSoundFont(xmlElement->getStringAttribute("path"), bookmark)
+                        && fluidSynthModel.hasLoadedSoundFont())
+                        return; // A failed project-bank replacement must preserve the working parameters too.
                 }
             }
             {

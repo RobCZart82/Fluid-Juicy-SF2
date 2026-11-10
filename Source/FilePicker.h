@@ -14,12 +14,13 @@
 
 class FilePicker: public Component,
                   public ValueTree::Listener,
-                  private FilenameComponentListener
+                  private FilenameComponentListener,
+                  private juce::AsyncUpdater
 {
 public:
     FilePicker(
-        AudioProcessorValueTreeState& valueTreeState
-        // FluidSynthModel& fluidSynthModel
+        AudioProcessorValueTreeState& valueTreeState,
+        FluidSynthModel& fluidSynthModel
     );
     ~FilePicker();
 
@@ -41,7 +42,10 @@ public:
     inline virtual void valueTreeParentChanged (ValueTree& treeWhoseParentHasChanged) override {};
     inline virtual void valueTreeRedirected (ValueTree& treeWhichHasBeenChanged) override {};
 private:
+    void handleAsyncUpdate() override;
     FilenameComponent fileChooser;
+    FluidSynthModel& fluidSynthModel;
+    String displayedError;
 
     AudioProcessorValueTreeState& valueTreeState;
     // FluidSynthModel& fluidSynthModel;

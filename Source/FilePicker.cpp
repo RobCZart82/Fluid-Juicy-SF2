@@ -15,8 +15,8 @@ using JuicyMac::CFPtr;
 #endif
 
 FilePicker::FilePicker(
-    AudioProcessorValueTreeState& valueTreeState
-    // FluidSynthModel& fluidSynthModel
+    AudioProcessorValueTreeState& valueTreeState,
+    FluidSynthModel& model
 )
 : fileChooser{
     "File",
@@ -27,6 +27,7 @@ FilePicker::FilePicker(
     "*.sf2;*.sf3",
     String(),
     "Choose a Soundfont file to load into the synthesizer"}
+, fluidSynthModel{model}
 , valueTreeState{valueTreeState}
 // , fluidSynthModel{fluidSynthModel}
 // , currentPath{}
@@ -43,6 +44,7 @@ FilePicker::FilePicker(
     addAndMakeVisible (fileChooser);
     fileChooser.addListener (this);
     valueTreeState.state.addListener(this);
+    triggerAsyncUpdate();
 //    valueTreeState.state.getChildWithName("soundFont").sendPropertyChangeMessage("path");
 
 #if JUCE_MAC || JUCE_IOS
@@ -50,6 +52,7 @@ FilePicker::FilePicker(
 #endif
 }
 FilePicker::~FilePicker() {
+    cancelPendingUpdate();
     fileChooser.removeListener (this);
     valueTreeState.state.removeListener(this);
 }
@@ -68,6 +71,7 @@ void FilePicker::paint(Graphics& g)
 }
 
 void FilePicker::filenameComponentChanged (FilenameComponent*) {
+    MemoryBlock bookmark;
 #if JUCE_MAC || JUCE_IOS
     CFPtr<CFStringRef> filePath{fileChooser.getCurrentFile().getFullPathName().toCFString()};
     CFPtr<CFURLRef> url{CFURLCreateWithFileSystemPath(nullptr, filePath.get(), kCFURLPOSIXPathStyle, false)};
@@ -75,41 +79,44 @@ void FilePicker::filenameComponentChanged (FilenameComponent*) {
     CFPtr<CFDataRef> data{url ? CFURLCreateBookmarkData(nullptr, url.get(),
         bookmarkCreationOptions, nullptr, nullptr, &error) : nullptr};
     CFPtr<CFErrorRef> ownedError{error};
-    MemoryBlock bookmark;
     if (data) {
         bookmark.append(CFDataGetBytePtr(data.get()), static_cast<size_t>(CFDataGetLength(data.get())));
     }
-    // Empty bookmarks are valid: non-sandboxed hosts can use the saved path.
-    Value bookmarkValue{valueTreeState.state.getChildWithName("soundFont").getPropertyAsValue("bookmark", nullptr)};
-    bookmarkValue.setValue(var(bookmark));
+
 #endif
-    // currentPath = fileChooser.getCurrentFile().getFullPathName();
-    // fluidSynthModel.onFileNameChanged(fileChooser.getCurrentFile().getFullPathName(), -1, -1);
-    Value value{valueTreeState.state.getChildWithName("soundFont").getPropertyAsValue("path", nullptr)};
-    value.setValue(fileChooser.getCurrentFile().getFullPathName());
-//    value = fileChooser.getCurrentFile().getFullPathName();
+    fluidSynthModel.loadSoundFont(fileChooser.getCurrentFile().getFullPathName(), bookmark);
+    // Also refresh after repeated failures whose identical error property may not notify.
+    triggerAsyncUpdate();
 }
 
 void FilePicker::valueTreePropertyChanged(ValueTree& treeWhosePropertyHasChanged,
                                                const Identifier& property) {
-    if (treeWhosePropertyHasChanged.getType() == StringRef("soundFont")) {
-    // if (&treeWhosePropertyHasChanged == &valueTree) {
-        if (property == StringRef("path")) {
-            String soundFontPath = treeWhosePropertyHasChanged.getProperty("path", "");
-            DEBUG_PRINT(soundFontPath);
-            setDisplayedFilePath(soundFontPath);
-            // if (soundFontPath.isNotEmpty()) {
-            //     loadFont(soundFontPath);
-            // }
-        }
+    if (treeWhosePropertyHasChanged.getType() == StringRef("soundFont")
+        && (property == StringRef("path") || property == StringRef("loadError")))
+        triggerAsyncUpdate();
+}
+
+void FilePicker::handleAsyncUpdate() {
+    const auto state = valueTreeState.state.getChildWithName("soundFont");
+    const String path = state.getProperty("path", "");
+    if (path.isNotEmpty()) {
+        // Revert a rejected selection even if it is still the last committed path.
+        fileChooser.setCurrentFile(File(path), true, dontSendNotification);
+        currentPath = path;
     }
+    const String error = state.getProperty("loadError", "");
+    fileChooser.setTooltip(error.isEmpty() ? "Choose an SF2 or SF3 SoundFont" : error);
+    if (error.isNotEmpty() && error != displayedError)
+        juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
+            "SoundFont could not be loaded", error);
+    displayedError = error;
 }
 
 void FilePicker::setDisplayedFilePath(const String& path) {
      if (!shouldChangeDisplayedFilePath(path)) {
          return;
      }
-    // currentPath = path;
+    currentPath = path;
     fileChooser.setCurrentFile(File(path), true, dontSendNotification);
 }
 
