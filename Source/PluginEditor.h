@@ -59,7 +59,7 @@ private:
     FilePicker filePicker;
     SlidersComponent slidersComponent;
 
-    bool focusInitialized;
+    bool focusInitialized = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (JuicySFAudioProcessorEditor)
 };

@@ -1,6 +1,8 @@
 # Modernization status
 
-Date: 2026-11-09. Upstream baseline: `c95eb5755aab634a22dfa778912facd136590d5c`.
+Current audit and implementation status: [bug ledger](BUG_LEDGER.md) · [2026-11-10 audit](AUDIT-2026-11-10.md).
+
+Date: 2026-11-10. Upstream baseline: `c95eb5755aab634a22dfa778912facd136590d5c`.
 
 ## Intent
 
@@ -11,7 +13,7 @@ Fluid Juicy SF2 updates the existing Juicy SF Plugin for native Apple Silicon. P
 - Source pins: see `scripts/build.py` (full SHA for each dependency).
 - Native arm64, Intel macOS and Windows x64 source builds and processor regressions have passed in previous PR CI. Packaging on all three targets is a separate development gate; see the current commit checks.
 - Native macOS compilation and regression tests: see the exact GitHub Actions run for the development branch. Until a run passes, treat the source as an unverified development preview.
-- Processor regressions use an original generated SF2 and check MIDI offsets, finite output, state round-trip and pitch at 44.1/48/96 kHz. SF3 was also exercised locally with an original Vorbis fixture; full real-bank acceptance remains open.
+- Processor regressions use an original generated two-preset SF2 and check MIDI offsets, finite output, state round-trip, pitch at 44.1/48/96 kHz, empty-bank editor navigation and worker-MIDI/message-thread GUI delivery. First-batch evidence is pinned to code revision `4da9ca7` in the [bug ledger](BUG_LEDGER.md). SF3 was also exercised locally with an original Vorbis fixture; full real-bank acceptance remains open.
 - Manual REAPER scan, editor display, SF2/SF3 loading, saved-project recall, moved/missing files, sample-rate changes, multiple instances, offline rendering and sustained playback remain required.
 - Developer ID signing/notarization and clean-machine install acceptance remain open. Do not call an ad-hoc signed CI artifact a notarized release.
 

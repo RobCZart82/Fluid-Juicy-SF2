@@ -88,18 +88,17 @@ Pills::Pills(
     loadModelFrom(banks);
 
     valueTreeState.state.addListener(this);
-    valueTreeState.addParameterListener("bank", this);
+    startTimerHz(30);
 }
 
 Pills::~Pills() {
-    valueTreeState.removeParameterListener("bank", this);
+    stopTimer();
     valueTreeState.state.removeListener(this);
 }
 
-void Pills::parameterChanged(const String& parameterID, float newValue) {
-    if (parameterID == "bank") {
-        updatePillToggleStates();
-    }
+void Pills::timerCallback() {
+    const auto bank = static_cast<int>(valueTreeState.getRawParameterValue("bank")->load());
+    if (bank != displayedBank) updatePillToggleStates();
 }
 
 void Pills::updatePillToggleStates() {
@@ -107,6 +106,7 @@ void Pills::updatePillToggleStates() {
     jassert(dynamic_cast<AudioParameterInt*> (param) != nullptr);
     AudioParameterInt* castParam {dynamic_cast<AudioParameterInt*> (param)};
     int bank{castParam->get()};
+    displayedBank = bank;
     for (auto& pill: pills) {
         pill->bankChanged(bank);
     }
@@ -146,16 +146,14 @@ void Pills::cycle(bool right) {
     AudioParameterInt* castParam{dynamic_cast<AudioParameterInt*> (param)};
     int bank{castParam->get()};
 
-    int currentIx{static_cast<const int>(
-        distance(
-            pills.begin(),
-            find_if(
-                pills.begin(),
-                pills.end(),
-                    [bank](unique_ptr<Pill>& pill){
-                        return pill->bank == bank;})))};
-    currentIx += right ? 1 : pills.size()-1;
-    pills[currentIx % pills.size()]->textButton.triggerClick();
+    if (pills.empty()) return;
+    const auto current = find_if(pills.begin(), pills.end(),
+        [bank](const unique_ptr<Pill>& pill) { return pill->bank == bank; });
+    const int count = static_cast<int>(pills.size());
+    const int index = current == pills.end()
+        ? (right ? 0 : count - 1)
+        : (static_cast<int>(distance(pills.begin(), current)) + (right ? 1 : count - 1)) % count;
+    pills[static_cast<size_t>(index)]->textButton.triggerClick();
 
 }
 

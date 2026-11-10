@@ -485,11 +485,8 @@ void FluidSynthModel::setCurrentProgram(int index)
     RangedAudioParameter *param{valueTreeState.getParameter("preset")};
     jassert(dynamic_cast<AudioParameterInt*>(param) != nullptr);
     AudioParameterInt* castParam{dynamic_cast<AudioParameterInt*>(param)};
-    // setCurrentProgram() gets invoked from non-message thread.
-    // AudioParameterInt#operator= will activate any listeners of audio parameter "preset".
-    // This includes TableComponent, who will update its UI.
-    // we need to lock the message thread whilst it does that UI update.
-    const MessageManagerLock mmLock;
+    // GUI components poll parameter atomics on their own message-thread timer.
+    // Never acquire a message-thread lock from a host/audio callback.
     *castParam = index;
 }
 

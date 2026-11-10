@@ -60,13 +60,11 @@ TableComponent::TableComponent(
     // we could now change some initial settings..
     table.getHeader().setSortColumnId(1, false); // sort ascending by ID column
     valueTreeState.state.addListener(this);
-    valueTreeState.addParameterListener("bank", this);
-    valueTreeState.addParameterListener("preset", this);
+    startTimerHz(30);
 }
 
 TableComponent::~TableComponent() {
-    valueTreeState.removeParameterListener("bank", this);
-    valueTreeState.removeParameterListener("preset", this);
+    stopTimer();
     valueTreeState.state.removeListener(this);
 }
 
@@ -88,12 +86,11 @@ void TableComponent::loadModelFrom(ValueTree& banks) {
     repopulateTable();
 }
 
-void TableComponent::parameterChanged(const String& parameterID, float newValue) {
-    if (parameterID == "bank") {
-        repopulateTable();
-    } else if (parameterID == "preset") {
-        selectCurrentPreset();
-    }
+void TableComponent::timerCallback() {
+    const auto bank = static_cast<int>(valueTreeState.getRawParameterValue("bank")->load());
+    const auto preset = static_cast<int>(valueTreeState.getRawParameterValue("preset")->load());
+    if (bank != displayedBank) repopulateTable();
+    else if (preset != displayedPreset) selectCurrentPreset();
 }
 
 void TableComponent::repopulateTable() {
@@ -102,6 +99,7 @@ void TableComponent::repopulateTable() {
     jassert(dynamic_cast<AudioParameterInt*>(param) != nullptr);
     AudioParameterInt* castParam{dynamic_cast<AudioParameterInt*>(param)};
     int bank{castParam->get()};
+    displayedBank = bank;
 
     BanksToPresets::iterator lowerBound{banksToPresets.lower_bound(bank)};
     BanksToPresets::iterator upperBound{banksToPresets.upper_bound(bank)};
@@ -206,6 +204,7 @@ void TableComponent::selectCurrentPreset() {
     jassert(dynamic_cast<AudioParameterInt*>(param) != nullptr);
     AudioParameterInt* castParam{dynamic_cast<AudioParameterInt*>(param)};
     int value{castParam->get()};
+    displayedPreset = value;
 
     for (auto it{rows.begin()}; it != rows.end(); ++it) {
         if(it->preset == value) {
@@ -273,7 +272,7 @@ bool TableComponent::DataSorter::operator ()(
 }
 
 void TableComponent::selectedRowsChanged (int row) {
-    if (row < 0) {
+    if (row < 0 || row >= static_cast<int>(rows.size())) {
         return;
     }
     int newPreset{rows[row].preset};
