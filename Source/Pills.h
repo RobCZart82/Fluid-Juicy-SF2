@@ -6,77 +6,30 @@
 
 #include "JuceHeader.h"
 
-using namespace std;
-
-class Pill
-: public Component
-, public Button::Listener
+class Pills : public Component,
+              private ValueTree::Listener,
+              private juce::Timer
 {
 public:
-    Pill(
-        AudioProcessorValueTreeState& valueTreeState,
-        int bank,
-        bool isFirst,
-        bool isLast
-    );
-    ~Pill();
+    explicit Pills(AudioProcessorValueTreeState& valueTreeState);
+    ~Pills() override;
 
-    void buttonClicked(Button* button) override;
-
-    void resized() override;
-    void paint(Graphics& g) override;
-
-    void bankChanged(int bank);
-private:
-
-    AudioProcessorValueTreeState& valueTreeState;
-    int bank;
-    TextButton textButton;
-
-    friend class Pills;
-};
-
-class Pills
-: public Component
-, public ValueTree::Listener
-, private juce::Timer
-{
-public:
-    Pills(
-        AudioProcessorValueTreeState& valueTreeState
-    );
-    ~Pills();
-    
     void cycle(bool right);
 
-
-
-    virtual void valueTreePropertyChanged (ValueTree& treeWhosePropertyHasChanged,
-                                           const Identifier& property) override;
-    inline virtual void valueTreeChildAdded (ValueTree& parentTree,
-                                             ValueTree& childWhichHasBeenAdded) override {};
-    inline virtual void valueTreeChildRemoved (ValueTree& parentTree,
-                                               ValueTree& childWhichHasBeenRemoved,
-                                               int indexFromWhichChildWasRemoved) override {};
-    inline virtual void valueTreeChildOrderChanged (ValueTree& parentTreeWhoseChildrenHaveMoved,
-                                                    int oldIndex, int newIndex) override {};
-    inline virtual void valueTreeParentChanged (ValueTree& treeWhoseParentHasChanged) override {};
-    inline virtual void valueTreeRedirected (ValueTree& treeWhichHasBeenChanged) override {};
 private:
+    void resized() override;
     void timerCallback() override;
-    int displayedBank = -1;
-    void loadModelFrom(ValueTree& banks);
+    void valueTreePropertyChanged(ValueTree& tree, const Identifier& property) override;
+    void rebuildBanks(const ValueTree& banks);
+    int currentBank() const;
+    void refreshSelection();
+    void selectBank(int bank);
 
     AudioProcessorValueTreeState& valueTreeState;
+    juce::ComboBox bankList;
+    TextButton previousBank{String::charToString(0x2039)};
+    TextButton nextBank{String::charToString(0x203a)};
+    int displayedBank = -1;
 
-    vector<unique_ptr<Pill>> pills;
-    Button *selected;
-
-    void updatePillToggleStates();
-
-    void populate(int initiallySelectedItem);
-    void resized() override;
-    void paint(Graphics& g) override;
-
-    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (Pills)
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(Pills)
 };
