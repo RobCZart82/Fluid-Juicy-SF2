@@ -3,177 +3,113 @@
 //
 
 #include "Pills.h"
-#include "MyColours.h"
-#include <algorithm>
+#include <set>
 
-using namespace std;
-
-Pill::Pill(
-    AudioProcessorValueTreeState& valueTreeState,
-    int bank,
-    bool isFirst,
-    bool isLast
-)
-: valueTreeState{valueTreeState}
-, bank{bank}
-, textButton{String(bank)}
+Pills::Pills(AudioProcessorValueTreeState& valueTreeState)
+    : valueTreeState{valueTreeState}
 {
-    setOpaque(true);
-    textButton.setConnectedEdges (
-            (isFirst ? 0 : Button::ConnectedOnLeft)
-            | (isLast ? 0 : Button::ConnectedOnRight)
-    );
-    textButton.setRadioGroupId(34567);
-    textButton.setClickingTogglesState(true);
+    bankList.setTitle("SoundFont bank");
+    bankList.setTextWhenNothingSelected("Select bank");
+    bankList.setTextWhenNoChoicesAvailable("No banks available");
+    bankList.onChange = [this] {
+        if (const int id = bankList.getSelectedId(); id > 0)
+            selectBank(id - 1);
+    };
+    previousBank.setTitle("Previous bank");
+    nextBank.setTitle("Next bank");
+    previousBank.onClick = [this] { cycle(false); };
+    nextBank.onClick = [this] { cycle(true); };
 
-    addAndMakeVisible(textButton);
-    textButton.addListener(this);
-}
+    addAndMakeVisible(previousBank);
+    addAndMakeVisible(bankList);
+    addAndMakeVisible(nextBank);
 
-void Pill::paint (Graphics& g) {
-    // (Our component is opaque, so we must completely fill the background with a solid colour)
-    g.fillAll(getLookAndFeel().findColour(ResizableWindow::backgroundColourId));
-}
-
-void Pill::resized() {
-    textButton.setBounds(getLocalBounds());
-}
-
-Pill::~Pill() {
-    textButton.removeListener(this);
-}
-
-void Pill::bankChanged(int bank) {
-    textButton.setToggleState(this->bank == bank, dontSendNotification);
-}
-
-void Pill::buttonClicked(Button* button) {
-    ValueTree banks{valueTreeState.state.getChildWithName("banks")};
-    int banksChildren{banks.getNumChildren()};
-    ValueTree bank;
-    for(int bankIx{0}; bankIx<banksChildren; bankIx++) {
-        ValueTree currentBank{banks.getChild(bankIx)};
-        int bankNum{currentBank.getProperty("num")};
-        if (bankNum == this->bank) {
-            bank = currentBank;
-            break;
-        }
-    }
-    ValueTree preset{bank.getChild(0)};
-    int presetNum{preset.getProperty("num")};
-
-    {
-        RangedAudioParameter *param{valueTreeState.getParameter("bank")};
-        jassert(dynamic_cast<AudioParameterInt*>(param) != nullptr);
-        AudioParameterInt* castParam{dynamic_cast<AudioParameterInt*>(param)};
-        *castParam = this->bank;
-    }
-    {
-        RangedAudioParameter *param{valueTreeState.getParameter("preset")};
-        jassert(dynamic_cast<AudioParameterInt*>(param) != nullptr);
-        AudioParameterInt* castParam{dynamic_cast<AudioParameterInt*>(param)};
-        *castParam = presetNum;
-    }
-}
-
-Pills::Pills(
-    AudioProcessorValueTreeState& valueTreeState
-)
-: valueTreeState{valueTreeState}
-{
-    // faster (rounded edges introduce transparency)
-    setOpaque (true);
-
-    ValueTree banks{valueTreeState.state.getChildWithName("banks")};
-    loadModelFrom(banks);
-
+    rebuildBanks(valueTreeState.state.getChildWithName("banks"));
     valueTreeState.state.addListener(this);
     startTimerHz(30);
 }
 
-Pills::~Pills() {
+Pills::~Pills()
+{
     stopTimer();
     valueTreeState.state.removeListener(this);
 }
 
-void Pills::timerCallback() {
-    const auto bank = static_cast<int>(valueTreeState.getRawParameterValue("bank")->load());
-    if (bank != displayedBank) updatePillToggleStates();
+void Pills::resized()
+{
+    auto area = getLocalBounds();
+    previousBank.setBounds(area.removeFromLeft(27));
+    nextBank.setBounds(area.removeFromRight(27));
+    bankList.setBounds(area.reduced(4, 0));
 }
 
-void Pills::updatePillToggleStates() {
-    RangedAudioParameter *param {valueTreeState.getParameter("bank")};
-    jassert(dynamic_cast<AudioParameterInt*> (param) != nullptr);
-    AudioParameterInt* castParam {dynamic_cast<AudioParameterInt*> (param)};
-    int bank{castParam->get()};
-    displayedBank = bank;
-    for (auto& pill: pills) {
-        pill->bankChanged(bank);
-    }
+int Pills::currentBank() const
+{
+    return static_cast<int>(valueTreeState.getRawParameterValue("bank")->load());
 }
 
-void Pills::valueTreePropertyChanged(
-    ValueTree& treeWhosePropertyHasChanged,
-    const Identifier& property) {
-    if (treeWhosePropertyHasChanged.getType() == StringRef("banks")) {
-        if (property == StringRef("synthetic")) {
-            loadModelFrom(treeWhosePropertyHasChanged);
+void Pills::timerCallback()
+{
+    if (currentBank() != displayedBank)
+        refreshSelection();
+}
+
+void Pills::valueTreePropertyChanged(ValueTree& tree, const Identifier& property)
+{
+    if (tree.hasType("banks") && property == Identifier("synthetic"))
+        rebuildBanks(tree);
+}
+
+void Pills::rebuildBanks(const ValueTree& banks)
+{
+    std::set<int> bankNumbers;
+    for (const auto& bank : banks)
+        bankNumbers.insert(static_cast<int>(bank.getProperty("num")));
+
+    bankList.clear(dontSendNotification);
+    for (const auto bank : bankNumbers)
+        bankList.addItem("Bank " + String(bank), bank + 1);
+
+    const bool hasBanks = bankList.getNumItems() > 0;
+    bankList.setEnabled(hasBanks);
+    bankList.setTextWhenNothingSelected(hasBanks ? "Select bank" : "No banks available");
+    refreshSelection();
+}
+
+void Pills::refreshSelection()
+{
+    displayedBank = currentBank();
+    bankList.setSelectedId(displayedBank + 1, dontSendNotification);
+    const int index = bankList.getSelectedItemIndex();
+    const int count = bankList.getNumItems();
+    previousBank.setEnabled(count > 0 && index != 0);
+    nextBank.setEnabled(count > 0 && index < count - 1);
+}
+
+void Pills::cycle(bool right)
+{
+    refreshSelection();
+    const int count = bankList.getNumItems();
+    const int current = bankList.getSelectedItemIndex();
+    const int target = current < 0 ? (right ? 0 : count - 1) : current + (right ? 1 : -1);
+    if (target >= 0 && target < count)
+        selectBank(bankList.getItemId(target) - 1);
+}
+
+void Pills::selectBank(int bank)
+{
+    if (bank == currentBank())
+        return;
+
+    for (const auto& entry : valueTreeState.state.getChildWithName("banks"))
+    {
+        if (static_cast<int>(entry.getProperty("num")) == bank && entry.getNumChildren() > 0)
+        {
+            *static_cast<AudioParameterInt*>(valueTreeState.getParameter("bank")) = bank;
+            *static_cast<AudioParameterInt*>(valueTreeState.getParameter("preset")) =
+                static_cast<int>(entry.getChild(0).getProperty("num"));
+            refreshSelection();
+            return;
         }
     }
-}
-
-void Pills::loadModelFrom(ValueTree& banks) {
-    pills.clear();
-    int numChildren{banks.getNumChildren()};
-    for(int i{0}; i < numChildren; i++) {
-        ValueTree child{banks.getChild(i)};
-        int num{child.getProperty("num")};
-        unique_ptr<Pill> pill{make_unique<Pill>(
-            valueTreeState,
-            num,
-            i == 0,
-            i == numChildren - 1)};
-        addAndMakeVisible(pill.get());
-        pills.push_back(move(pill));
-    }
-    updatePillToggleStates();
-    resized();
-}
-
-void Pills::cycle(bool right) {
-    RangedAudioParameter *param{valueTreeState.getParameter("bank")};
-    jassert(dynamic_cast<AudioParameterInt*>(param) != nullptr);
-    AudioParameterInt* castParam{dynamic_cast<AudioParameterInt*> (param)};
-    int bank{castParam->get()};
-
-    if (pills.empty()) return;
-    const auto current = find_if(pills.begin(), pills.end(),
-        [bank](const unique_ptr<Pill>& pill) { return pill->bank == bank; });
-    const int count = static_cast<int>(pills.size());
-    const int index = current == pills.end()
-        ? (right ? 0 : count - 1)
-        : (static_cast<int>(distance(pills.begin(), current)) + (right ? 1 : count - 1)) % count;
-    pills[static_cast<size_t>(index)]->textButton.triggerClick();
-
-}
-
-void Pills::resized() {
-    int index{0};
-    Rectangle<int> r{getLocalBounds()};
-    const int equalWidth{r.proportionOfWidth(pills.size() <= 0 ? 1.0 : 1.0f/pills.size())};
-    for(auto& pill : pills) {
-        Rectangle<int> r2 (getLocalBounds());
-        r2.removeFromLeft(equalWidth * index);
-        r2.removeFromRight(equalWidth * (static_cast<int>(pills.size())-index-1));
-        pill->setBounds(r2);
-        index++;
-    }
-}
-
-/**
- * This is required to support setOpaque(true)
- */
-void Pills::paint(Graphics& g)
-{
-    g.fillAll(MyColours::getUIColourIfAvailable(LookAndFeel_V4::ColourScheme::UIColour::windowBackground, juce::Colours::lightgrey));
 }
