@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build Juicy and its pinned open-source dependencies in a local directory."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -44,6 +45,43 @@ def source(name, directory):
         run('git', '-C', path, 'submodule', 'update', '--init', '--depth=1', '--', 'gcem', 'signalsmith-audio-basics')
     return path
 
+def clean_revision(repository):
+    revision = subprocess.check_output(
+        ['git', '-C', str(repository), 'rev-parse', 'HEAD'], text=True).strip()
+    if subprocess.check_output(
+        ['git', '-C', str(repository), 'status', '--porcelain', '--untracked-files=no'],
+        text=True).strip():
+        return None
+    return revision
+
+
+def desktop_products(build, system):
+    artifacts = build / 'plugin' / 'JuicySFPlugin_artefacts' / 'Release'
+    standalone_suffix = '.app' if system == 'Darwin' else '.exe'
+    return (artifacts / 'VST3' / 'Fluid_Juicy_SF2.vst3',
+            artifacts / 'Standalone' / ('Fluid_Juicy_SF2' + standalone_suffix))
+
+
+def product_manifest(product):
+    if not product.exists():
+        raise RuntimeError(f'Missing build product: {product}')
+    entries = product.rglob('*') if product.is_dir() else (product,)
+    manifest = {}
+    for entry in entries:
+        name = entry.relative_to(product).as_posix()
+        if entry.is_symlink():
+            manifest[name] = {'symlink': os.readlink(entry)}
+        elif entry.is_file():
+            digest = hashlib.sha256()
+            with entry.open('rb') as stream:
+                for chunk in iter(lambda: stream.read(1024 * 1024), b''):
+                    digest.update(chunk)
+            manifest[name] = {'sha256': digest.hexdigest()}
+    if not manifest:
+        raise RuntimeError(f'Empty build product: {product}')
+    return manifest
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--arch', choices=['arm64', 'x86_64'], default=None)
@@ -58,6 +96,9 @@ def main():
     if not mac and arch != 'x86_64':
         parser.error('This update targets macOS arm64; Windows validation is x64 only')
     build = args.build_dir.resolve() / arch
+    record_path = build / 'build-record.json'
+    record_path.unlink(missing_ok=True)
+    revision = clean_revision(ROOT)
     prefix = build / 'prefix'
     sources = (args.source_dir or args.build_dir.resolve() / 'sources').resolve()
     common = ['-DCMAKE_BUILD_TYPE=Release', '-DBUILD_SHARED_LIBS=OFF',
@@ -110,7 +151,15 @@ def main():
     record = {'pins': PINS, 'arch': arch, 'platform': platform.platform(),
               'cmake': subprocess.check_output([args.cmake, '--version'], text=True),
               'status': 'build and processor regression tests passed; DAW acceptance not tested'}
-    (build / 'build-record.json').write_text(json.dumps(record, indent=2), encoding='utf-8')
+    if revision is not None and clean_revision(ROOT) == revision:
+        record['source_commit'] = revision
+        record['products'] = {p.name: product_manifest(p)
+                              for p in desktop_products(build, platform.system())}
+        temporary_record = record_path.with_suffix('.tmp')
+        temporary_record.write_text(json.dumps(record, indent=2), encoding='utf-8')
+        temporary_record.replace(record_path)
+    else:
+        print('Build has local source changes. A clean, committed build is required for packaging.')
     print(f'Build completed in {build}. Nothing installed into plugin folders.')
 
 if __name__ == '__main__':
