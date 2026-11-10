@@ -7,7 +7,7 @@ import sys
 def chunk(tag, data):
     return tag + struct.pack('<I', len(data)) + data + b'\0' * (len(data) % 2)
 
-def generate(path):
+def generate(path, bank_offset=0):
     def name(s): return s.encode().ljust(20, b'\0')
     # Exactly 100 periods at 440 Hz in 44100 samples; loop boundaries are integral.
     pcm = b''.join(struct.pack('<h', round(10000 * math.sin(2 * math.pi * 440 * n / 44100))) for n in range(44100))
@@ -16,6 +16,7 @@ def generate(path):
     sdta = chunk(b'LIST', b'sdta' + chunk(b'smpl', pcm + b'\0' * 92))
     # Bank 8 is an octave higher, so tests can verify the selected bank by audio.
     presets = [('Sine', 0, 0), ('Sine 2', 1, 0), ('Octave', 0, 8), ('Octave 2', 1, 8)]
+    presets = [(n, pr, bank + bank_offset) for n, pr, bank in presets]
     phdr = b''.join(struct.pack('<20sHHHIII', name(n), pr, bank, i, 0, 0, 0)
                     for i, (n, pr, bank) in enumerate(presets))
     phdr += struct.pack('<20sHHHIII', name('EOP'), 0, 0, len(presets), 0, 0, 0)
@@ -32,3 +33,4 @@ def generate(path):
 
 if __name__ == '__main__':
     generate(sys.argv[1])
+    generate(Path(sys.argv[1]).with_name("test-shifted.sf2"), bank_offset=5)

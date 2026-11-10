@@ -12,6 +12,7 @@ keeping its familiar interface and bank/preset browser.
 
 - SF2 and SF3 SoundFont playback.
 - Bank and preset selection, on-screen keyboard and MIDI input.
+- Background SoundFont loading with recovery after a failed bank change.
 - Filter, attack, decay, sustain and release controls.
 - VST3 plug-in and standalone application.
 - Build targets: macOS Apple Silicon, macOS Intel and Windows x64.

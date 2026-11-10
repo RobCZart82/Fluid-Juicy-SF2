@@ -1,23 +1,15 @@
-//
 // Created by Alex Birch on 10/09/2017.
-//
-
-#include <iostream>
-#include <iterator>
-#include <fluidsynth.h>
 #include "FluidSynthModel.h"
-#include "MidiConstants.h"
 #include "Util.h"
-
-#include "MacFileAccess.h"
+#include <algorithm>
+#include <chrono>
+#include <tuple>
+#include <stdexcept>
 #if JUCE_MAC || JUCE_IOS
 using JuicyMac::CFPtr;
 #endif
-
-using namespace std;
-
 thread_local FluidSynthModel* FluidSynthModel::publishingSelection = nullptr;
-
+thread_local FluidSynthModel* FluidSynthModel::renderingModel = nullptr;
 const map<fluid_midi_control_change, String> FluidSynthModel::controllerToParam{
     {SOUND_CTRL2, "filterResonance"}, // MIDI CC 71 Timbre/Harmonic Intensity (filter resonance)
     {SOUND_CTRL3, "release"}, // MIDI CC 72 Release time
@@ -38,48 +30,64 @@ const map<String, fluid_midi_control_change> FluidSynthModel::paramToController{
     return map;
 }()};
 
-FluidSynthModel::FluidSynthModel(
-    AudioProcessorValueTreeState& valueTreeState
-    )
-: valueTreeState{valueTreeState}
-, settings{nullptr, nullptr}
-, synth{nullptr, nullptr}
-, currentSampleRate{44100}
-, sfont_id{-1}
-, channel{0}
-{
-    valueTreeState.addParameterListener("bank", this);
-    valueTreeState.addParameterListener("preset", this);
-    for (const auto &[param, controller]: paramToController) {
-        valueTreeState.addParameterListener(param, this);
-    }
 
+FluidSynthModel::Engine::~Engine() {
+#if JUICY_ENABLE_TEST_HOOKS
+    if (renderingModel == owner) ++owner->audioReclaims;
+#endif
 }
-
-FluidSynthModel::~FluidSynthModel() {
-    for (const auto &[param, controller]: paramToController) {
-        valueTreeState.removeParameterListener(param, this);
+FluidSynthModel::FluidSynthModel(AudioProcessorValueTreeState& state) : valueTreeState(state) {
+    for (auto& value : requestedControllers) value.store(-1);
+    selection.store(packed(static_cast<int>(state.getRawParameterValue("bank")->load()),
+                           static_cast<int>(state.getRawParameterValue("preset")->load())));
+    for (const auto& entry : controllerToParam) {
+        requestedControllers[static_cast<size_t>(entry.first)].store(
+            static_cast<int>(state.getRawParameterValue(entry.second)->load()));
+        state.addParameterListener(entry.second, this);
     }
+    state.addParameterListener("bank", this);
+    state.addParameterListener("preset", this);
+    publishedMetadata = make_shared<Metadata>();
+    loader = thread([this] { loaderLoop(); });
+}
+FluidSynthModel::~FluidSynthModel() {
+    {
+        lock_guard<mutex> lock(requestMutex);
+        stopping = true;
+        queued.reset();
+        ++latestRequest;
+    }
+    requestReady.notify_one();
+    loader.join();
+    cancelPendingUpdate();
     valueTreeState.removeParameterListener("bank", this);
     valueTreeState.removeParameterListener("preset", this);
-
+    for (const auto& entry : controllerToParam)
+        valueTreeState.removeParameterListener(entry.second, this);
+    delete pending.exchange(nullptr);
+    reclaimRetired();
+    active.reset();
+    fading.reset();
 }
+void FluidSynthModel::initialise() { active = makeEngine(targetRate.load()); }
 
-void FluidSynthModel::initialise() {
-    // deactivate all audio drivers in fluidsynth to avoid FL Studio deadlock when initialising CoreAudio
-    // after all: we only use fluidsynth to render blocks of audio. it doesn't output to audio driver.
-    const char *DRV[] {NULL};
-    fluid_audio_driver_register(DRV);
-    
-    settings = { new_fluid_settings(), delete_fluid_settings };
-    
+unique_ptr<FluidSynthModel::Engine> FluidSynthModel::makeEngine(float rate) {
+    auto engine = make_unique<Engine>(this);
+    engine->rate = rate;
+    engine->appliedControllers.fill(-1);
+    engine->metadata = make_shared<Metadata>();
+    auto& settings = engine->settings;
+    auto& synth = engine->synth;
+    settings.reset(new_fluid_settings());
+    if (!settings) throw runtime_error("Could not create FluidSynth settings");
     // https://sourceforge.net/p/fluidsynth/wiki/FluidSettings/
 #if JUCE_DEBUG
     fluid_settings_setint(settings.get(), "synth.verbose", 1);
 #endif
 
-    fluid_settings_setnum(settings.get(), "synth.sample-rate", currentSampleRate);
-    synth = { new_fluid_synth(settings.get()), delete_fluid_synth };
+    fluid_settings_setnum(settings.get(), "synth.sample-rate", rate);
+    synth.reset(new_fluid_synth(settings.get()));
+    if (!synth) throw runtime_error("Could not create FluidSynth engine");
 
     // I can't hear a damned thing
     fluid_synth_set_gain(synth.get(), 2.0);
@@ -93,7 +101,7 @@ void FluidSynthModel::initialise() {
     // --
     // let's zero out every audio param that we manage
     for (const auto &[controller, param]: controllerToParam) {
-        setControllerValue(static_cast<int>(controller), 0);
+        fluid_synth_cc(synth.get(), 0, static_cast<int>(controller), 0);
     }
     
     // http://www.synthfont.com/SoundFont_NRPNs.PDF
@@ -173,250 +181,423 @@ void FluidSynthModel::initialise() {
     // clamps the range to between 0 and 1000, so we'll copy that
     fluid_mod_set_amount(mod.get(), 1000.0f);
     fluid_synth_add_default_mod(synth.get(), mod.get(), FLUID_SYNTH_ADD);
+
+    if (!synth) throw runtime_error("Could not create FluidSynth engine");
+    return engine;
 }
 
-const StringArray FluidSynthModel::programChangeParams{"bank", "preset"};
-void FluidSynthModel::parameterChanged(const String& parameterID, float newValue) {
-    if (programChangeParams.contains(parameterID)) {
-        if (publishingSelection == this || !synth || sfont_id < 0) return;
-        int bank, preset;
+FluidSynthModel::Request FluidSynthModel::newRequest(const String& path, const MemoryBlock& bookmark) {
+    Request request;
+    {
+        lock_guard<mutex> lock(requestMutex);
+        request = {path, bookmark, ++latestRequest};
+        queued.reset();
+        loading.store(true);
+        lock_guard<mutex> stateLock(stateMutex);
+        committed.error.clear();
+    }
+    triggerAsyncUpdate();
+    return request;
+}
+void FluidSynthModel::requestSoundFont(const String& path, const MemoryBlock& bookmark) {
+    auto request = newRequest(path, bookmark);
+    {
+        lock_guard<mutex> lock(requestMutex);
+        if (request.id == latestRequest.load() && !stopping) queued = std::move(request);
+    }
+    requestReady.notify_one();
+    synchroniseUi();
+}
+bool FluidSynthModel::loadSoundFont(const String& path, const MemoryBlock& bookmark) {
+    // Host state restoration is a non-RT operation. Never perform I/O in a
+    // reentrant host callback made while our own processBlock is on the stack.
+    jassert(renderingModel != this);
+    if (renderingModel == this) return false;
+    const auto request = newRequest(path, bookmark);
+    bool ok;
+    {
+        lock_guard<mutex> lock(buildMutex);
+        ok = performLoad(request);
+    }
+    synchroniseUi();
+    return ok;
+}
+void FluidSynthModel::loaderLoop() {
+    for (;;) {
+        reclaimRetired();
+        optional<Request> request;
         {
-            RangedAudioParameter *param{valueTreeState.getParameter("bank")};
-            jassert(dynamic_cast<AudioParameterInt*>(param) != nullptr);
-            AudioParameterInt* castParam{dynamic_cast<AudioParameterInt*>(param)};
-            bank = castParam->get();
+            unique_lock<mutex> lock(requestMutex);
+            requestReady.wait_for(lock, chrono::milliseconds(20), [this] { return stopping || queued.has_value(); });
+            if (stopping) return;
+            request = std::move(queued);
+            queued.reset();
         }
-        {
-            RangedAudioParameter *param{valueTreeState.getParameter("preset")};
-            jassert(dynamic_cast<AudioParameterInt*>(param) != nullptr);
-            AudioParameterInt* castParam{dynamic_cast<AudioParameterInt*>(param)};
-            preset = castParam->get();
+        if (request) {
+            lock_guard<mutex> lock(buildMutex);
+            performLoad(*request);
         }
-        int bankOffset{fluid_synth_get_bank_offset(synth.get(), sfont_id)};
-        fluid_synth_program_select(
-            synth.get(),
-            channel,
-            sfont_id,
-            static_cast<unsigned int>(bankOffset + bank),
-            static_cast<unsigned int>(preset));
-    } else if (
-        // https://stackoverflow.com/a/55482091/5257399
-        auto it{paramToController.find(parameterID)};
-        it != end(paramToController)) {
-        RangedAudioParameter *param{valueTreeState.getParameter(parameterID)};
-        jassert(dynamic_cast<AudioParameterInt*>(param) != nullptr);
-        AudioParameterInt* castParam{dynamic_cast<AudioParameterInt*>(param)};
-        int value{castParam->get()};
-        int controllerNumber{static_cast<int>(it->second)};
-        
-        fluid_synth_cc(
-            synth.get(),
-            channel,
-            controllerNumber,
-            value);
     }
 }
-
-bool FluidSynthModel::loadSoundFont(const String& requestedPath, const MemoryBlock& bookmark) {
-    if (requestedPath.isEmpty() && bookmark.getSize() == 0) {
-        resetPlayback();
-        if (sfont_id >= 0) fluid_synth_sfunload(synth.get(), sfont_id, 0);
-        sfont_id = -1;
-#if JUCE_MAC || JUCE_IOS
-        // Keep the previous scope until the old font has been destroyed by the engine.
-        if (fileAccess) retiredFileAccess.push_back(std::move(fileAccess));
+bool FluidSynthModel::performLoad(const Request& request) {
+#if JUICY_ENABLE_TEST_HOOKS
+    startedRequest.store(request.id);
+    {
+        unique_lock<mutex> lock(requestMutex);
+        requestReady.wait(lock, [this, &request] {
+            return !loadPaused.load() || stopping || request.id != latestRequest.load();
+        });
+        requestReady.wait_for(lock, chrono::milliseconds(loadDelay.load()),
+            [this, &request] { return stopping || request.id != latestRequest.load(); });
+    }
 #endif
-        refreshBanks();
-        auto emptyState = valueTreeState.state.getChildWithName("soundFont");
-        emptyState.setProperty("path", "", nullptr);
-        emptyState.setProperty("bookmark", var(MemoryBlock()), nullptr);
-        emptyState.setProperty("loadError", "", nullptr);
-        return true;
+    {
+        lock_guard<mutex> lock(requestMutex);
+        if (stopping || request.id != latestRequest.load()) return false;
     }
-    auto state = valueTreeState.state.getChildWithName("soundFont");
-    String path = requestedPath;
-    MemoryBlock committedBookmark = bookmark;
+    unique_ptr<Engine> candidate;
+    try { candidate = prepareFont(request); }
+    catch (const exception&) { candidate.reset(); }
+    if (candidate) return publish(std::move(candidate), request);
+    {
+        lock_guard<mutex> lock(requestMutex);
+        if (stopping || request.id != latestRequest.load()) return false;
+        lock_guard<mutex> stateLock(stateMutex);
+        if (!publishedHasFont.load()) {
+            committed.path = request.path;
+            committed.bookmark = request.bookmark;
+        }
+        committed.error = "Could not load SoundFont: " + request.path
+            + ". Check that the file exists and is a valid SF2/SF3 bank. The previous bank is kept when available.";
+        loading.store(false);
+    }
+    triggerAsyncUpdate();
+    return false;
+}
+unique_ptr<FluidSynthModel::Engine> FluidSynthModel::prepareFont(const Request& request) {
+    auto engine = makeEngine(targetRate.load());
+    engine->request = request.id;
+    engine->path = request.path;
+    engine->bookmark = request.bookmark;
+    if (request.path.isEmpty() && request.bookmark.getSize() == 0) return engine;
 #if JUCE_MAC || JUCE_IOS
-    std::unique_ptr<JuicyMac::ScopedFileAccess> access;
-    if (bookmark.getSize() > 0) {
-        CFPtr<CFDataRef> data{CFDataCreate(nullptr, static_cast<const UInt8*>(bookmark.getData()),
-            static_cast<CFIndex>(bookmark.getSize()))};
+    if (request.bookmark.getSize() > 0) {
+        CFPtr<CFDataRef> data{CFDataCreate(nullptr, static_cast<const UInt8*>(request.bookmark.getData()),
+            static_cast<CFIndex>(request.bookmark.getSize()))};
         CFErrorRef error = nullptr;
         Boolean stale = false;
         CFURLRef resolved = data ? CFURLCreateByResolvingBookmarkData(nullptr, data.get(),
             kCFURLBookmarkResolutionWithSecurityScope, nullptr, nullptr, &stale, &error) : nullptr;
         CFPtr<CFErrorRef> ownedError{error};
-        access = std::make_unique<JuicyMac::ScopedFileAccess>(resolved);
-        if (access->url) {
-            CFPtr<CFStringRef> cfPath{CFURLCopyFileSystemPath(access->url.get(), kCFURLPOSIXPathStyle)};
-            if (cfPath) path = String::fromCFString(cfPath.get());
-        } else {
-            access.reset();
-            committedBookmark.reset();
-        }
+        engine->access = make_unique<JuicyMac::ScopedFileAccess>(resolved);
+        if (engine->access->url) {
+            CFPtr<CFStringRef> path{CFURLCopyFileSystemPath(engine->access->url.get(), kCFURLPOSIXPathStyle)};
+            if (path) engine->path = String::fromCFString(path.get());
+        } else { engine->access.reset(); engine->bookmark.reset(); }
     }
 #endif
-    bool loaded = path.isNotEmpty() && replaceFont(path);
-    if (!loaded && path != requestedPath && requestedPath.isNotEmpty()) {
-        // A stale bookmark must not hide a valid saved/relocated path.
-        path = requestedPath;
-        committedBookmark.reset();
-#if JUCE_MAC || JUCE_IOS
-        access.reset();
-#endif
-        loaded = replaceFont(path);
-    }
-    if (!loaded) {
-        if (sfont_id < 0) {
-            // A fresh project with missing media must retain its reference for relocation.
-            state.setProperty("path", requestedPath, nullptr);
-            state.setProperty("bookmark", var(bookmark), nullptr);
-        }
-        state.setProperty("loadError", "Could not load SoundFont: " + requestedPath
-            + ". Check that the file exists and is a valid SF2/SF3 bank. The previous bank is kept when available.", nullptr);
-        return false;
-    }
-#if JUCE_MAC || JUCE_IOS
-    // Old voices/fonts may be freed later by FluidSynth. Retain their security
-    // scopes until the engine is rebuilt or destroyed, not merely until sfload returns.
-    if (fileAccess) retiredFileAccess.push_back(std::move(fileAccess));
-    fileAccess = std::move(access);
-#endif
-    state.setProperty("path", path, nullptr);
-    state.setProperty("bookmark", var(committedBookmark), nullptr);
-    state.setProperty("loadError", "", nullptr);
-    return true;
-}
-
-String FluidSynthModel::getLoadError() const {
-    return valueTreeState.state.getChildWithName("soundFont").getProperty("loadError", "");
-}
-
-void FluidSynthModel::publishCurrentSelection() {
-    int font = -1, bank = 0, program = 0;
-    if (fluid_synth_get_program(synth.get(), channel, &font, &bank, &program) != FLUID_OK) return;
-    // Suppress only this same-thread feedback path. A GUI/host request on a
-    // different thread is not silently swallowed by a process-wide guard.
-    const juce::ScopedValueSetter<FluidSynthModel*> guard(publishingSelection, this);
-    *static_cast<AudioParameterInt*>(valueTreeState.getParameter("bank")) = bank;
-    *static_cast<AudioParameterInt*>(valueTreeState.getParameter("preset")) = program;
-}
-
-void FluidSynthModel::setControllerValue(int controller, int value) {
-    fluid_synth_cc(
-        synth.get(),
-        channel,
-        controller,
-        value);
-}
-
-int FluidSynthModel::getChannel() {
-    return channel;
-}
-
-bool FluidSynthModel::replaceFont(const String& path) {
-    if (!synth) return false;
-    // Do not reset channel presets or unload a working bank until the candidate
-    // has loaded and a playable preset has been selected successfully.
-    const int candidate = fluid_synth_sfload(synth.get(), path.toStdString().c_str(), 0);
-    if (candidate < 0) return false;
-    const int bank = static_cast<int>(valueTreeState.getRawParameterValue("bank")->load());
-    const int program = static_cast<int>(valueTreeState.getRawParameterValue("preset")->load());
-    int result = fluid_synth_program_select(synth.get(), channel, candidate, bank, program);
-    if (result != FLUID_OK) {
-        if (auto* font = fluid_synth_get_sfont_by_id(synth.get(), candidate)) {
-            fluid_sfont_iteration_start(font);
-            if (auto* first = fluid_sfont_iteration_next(font))
-                result = fluid_synth_program_select(synth.get(), channel, candidate,
-                    fluid_preset_get_banknum(first), fluid_preset_get_num(first));
-        }
-    }
-    if (result != FLUID_OK) {
-        fluid_synth_sfunload(synth.get(), candidate, 0);
-        return false;
-    }
-    const int previous = sfont_id;
-    sfont_id = candidate;
-    if (previous >= 0) fluid_synth_sfunload(synth.get(), previous, 0);
-    publishCurrentSelection();
-    refreshBanks();
-    return true;
-}
-
-void FluidSynthModel::refreshBanks() {
-    ValueTree banks{"banks"};
-    fluid_sfont_t* sfont{
-        sfont_id == -1
-        ? nullptr
-        : fluid_synth_get_sfont_by_id(synth.get(), sfont_id)
+    const auto tryPath = [&] {
+        if (engine->path.isEmpty()) return -1;
+        return fluid_synth_sfload(engine->synth.get(), engine->path.toRawUTF8(), 0);
     };
-    if (sfont) {
-        int greatestEncounteredBank{-1};
-        ValueTree bank;
-
-        fluid_sfont_iteration_start(sfont);
-        for(fluid_preset_t* preset {fluid_sfont_iteration_next(sfont)};
-        preset != nullptr;
-        preset = fluid_sfont_iteration_next(sfont)) {
-            int bankNum{fluid_preset_get_banknum(preset)};
-            if (bankNum > greatestEncounteredBank) {
-                if (greatestEncounteredBank > -1) {
-                    banks.appendChild(bank, nullptr);
-                }
-                bank = { "bank", {
-                    { "num", bankNum }
-                } };
-                greatestEncounteredBank = bankNum;
-            }
-            bank.appendChild({ "preset", {
-                { "num", fluid_preset_get_num(preset) },
-                { "name", String{fluid_preset_get_name(preset)} }
-            }, {} }, nullptr);
-        }
-        if (greatestEncounteredBank > -1) {
-            banks.appendChild(bank, nullptr);
-        }
-    }
-    valueTreeState.state.getChildWithName("banks").copyPropertiesAndChildrenFrom(banks, nullptr);
-    valueTreeState.state.getChildWithName("banks").sendPropertyChangeMessage("synthetic");
-    
-#if JUCE_DEBUG
-//    unique_ptr<XmlElement> xml{valueTreeState.state.createXml()};
-//    Logger::outputDebugString(xml->createDocument("",false,false));
-#endif
-}
-
-void FluidSynthModel::setSampleRate(float sampleRate) {
-    if (currentSampleRate == sampleRate) return;
-    currentSampleRate = sampleRate;
-    // https://stackoverflow.com/a/40856043/5257399
-    // test if a smart pointer is null
-    if (!synth) {
-        // don't worry; we'll do this in initialise phase regardless
-        return;
-    }
-    // FluidSynth >= 2.4.4 requires the rate at construction. prepareToPlay()
-    // calls this while audio is stopped; preserve the loaded font and parameters.
-    String path;
-    if (sfont_id >= 0)
-        if (auto* font = fluid_synth_get_sfont_by_id(synth.get(), sfont_id))
-            path = String::fromUTF8(fluid_sfont_get_name(font));
-    const auto savedChannel = captureChannel();
-    synth.reset();
+    engine->font = tryPath();
+    if (engine->font < 0 && engine->path != request.path && request.path.isNotEmpty()) {
+        engine->path = request.path;
+        engine->bookmark.reset();
 #if JUCE_MAC || JUCE_IOS
-    retiredFileAccess.clear();
+        engine->access.reset();
 #endif
-    settings.reset();
-    sfont_id = -1;
-    initialise();
-    if (path.isNotEmpty()) replaceFont(path);
-    restoreChannel(savedChannel, false);
-    for (const auto& entry : paramToController)
-        parameterChanged(entry.first, 0.0f);
-    if (sfont_id >= 0) parameterChanged("preset", 0.0f);
+        engine->font = tryPath();
+    }
+    if (engine->font < 0) return nullptr;
+    auto metadata = make_shared<Metadata>();
+    auto* font = fluid_synth_get_sfont_by_id(engine->synth.get(), engine->font);
+    fluid_sfont_iteration_start(font);
+    while (auto* preset = fluid_sfont_iteration_next(font))
+        metadata->presets.push_back({fluid_preset_get_banknum(preset), fluid_preset_get_num(preset),
+                                    String::fromUTF8(fluid_preset_get_name(preset))});
+    if (metadata->presets.empty()) return nullptr;
+    sort(metadata->presets.begin(), metadata->presets.end(), [](const Preset& a, const Preset& b) {
+        return tie(a.bank, a.program) < tie(b.bank, b.program);
+    });
+    engine->builtSelectionRequest = selection.load();
+    const int bank = static_cast<int>(engine->builtSelectionRequest >> 16);
+    const int program = static_cast<int>(engine->builtSelectionRequest & 0xffffu);
+    if (fluid_synth_program_select(engine->synth.get(), 0, engine->font, bank, program) != FLUID_OK) {
+        const auto& first = metadata->presets.front();
+        if (fluid_synth_program_select(engine->synth.get(), 0, engine->font, first.bank, first.program) != FLUID_OK)
+            return nullptr;
+    }
+    int selectedFont, selectedBank, selectedProgram;
+    fluid_synth_get_program(engine->synth.get(), 0, &selectedFont, &selectedBank, &selectedProgram);
+    engine->preparedSelection = packed(selectedBank, selectedProgram);
+    engine->metadata = std::move(metadata);
+    return engine;
+}
+bool FluidSynthModel::publish(unique_ptr<Engine> candidate, const Request& request) {
+    Engine* obsolete;
+    {
+        lock_guard<mutex> lock(requestMutex);
+        if (stopping || request.id != latestRequest.load()) return false;
+        {
+            lock_guard<mutex> stateLock(stateMutex);
+            committed = {candidate->path, candidate->bookmark, {}};
+            publishedMetadata = candidate->metadata;
+            const bool empty = candidate->font < 0;
+            publishedHasFont.store(!empty);
+            desiredEmpty.store(empty);
+            if (empty) unloadEpoch.store(request.id);
+            if (!empty) {
+                auto expected = candidate->builtSelectionRequest;
+                selection.compare_exchange_strong(expected, candidate->preparedSelection);
+            }
+        }
+        obsolete = pending.exchange(candidate.release());
+        loading.store(false);
+    }
+    // Deallocation/bookmark release must not hold even the short request lock.
+    delete obsolete;
+    triggerAsyncUpdate();
+    return true;
 }
 
-FluidSynthModel::ChannelSnapshot FluidSynthModel::captureChannel() {
+void FluidSynthModel::reclaimRetired() { delete retired.exchange(nullptr); }
+void FluidSynthModel::adoptPending() {
+    // Single retired slot: apply backpressure rather than block or delete on RT.
+    if (fading || retired.load() != nullptr) return;
+    if (auto* next = pending.exchange(nullptr)) {
+        const auto state = captureChannel(*active);
+        restoreChannel(*next, state, false);
+        auto* previous = active.release();
+        active.reset(next);
+        activeRequest.store(next->request);
+        if (previous->font >= 0 && next->font >= 0 && previous->request >= unloadEpoch.load()) {
+            fading.reset(previous); // Empty owner: no destructor on the render stack.
+            fadeRemaining = fadeSamples;
+        } else {
+            retired.store(previous);
+        }
+    }
+}
+void FluidSynthModel::adoptWhileStopped() {
+    fading.reset();
+    fadeRemaining = 0;
+    reclaimRetired();
+    if (auto* next = pending.exchange(nullptr)) {
+        const auto state = captureChannel(*active);
+        restoreChannel(*next, state, false);
+        active.reset(next); // Host has stopped rendering: reclamation is non-RT.
+        activeRequest.store(next->request);
+    }
+}
+void FluidSynthModel::parameterChanged(const String& id, float value) {
+    if (publishingSelection == this) return;
+    if (id == "bank" || id == "preset") {
+        auto before = selection.load();
+        unsigned int after;
+        do {
+            after = id == "bank" ? packed(static_cast<int>(value), static_cast<int>(before & 0xffffu))
+                                 : packed(static_cast<int>(before >> 16), static_cast<int>(value));
+        } while (!selection.compare_exchange_weak(before, after));
+    } else if (const auto it = paramToController.find(id); it != paramToController.end()) {
+        requestedControllers[static_cast<size_t>(it->second)].store(static_cast<int>(value));
+    }
+}
+void FluidSynthModel::setControllerValue(int controller, int value) {
+    const auto it = controllerToParam.find(static_cast<fluid_midi_control_change>(controller));
+    if (it != controllerToParam.end())
+        *static_cast<AudioParameterInt*>(valueTreeState.getParameter(it->second)) = juce::jlimit(0, 127, value);
+}
+void FluidSynthModel::applyControls(Engine& engine) {
+    for (const auto& entry : controllerToParam) {
+        const auto cc = static_cast<size_t>(entry.first);
+        const int value = requestedControllers[cc].load();
+        if (value != engine.appliedControllers[cc]) {
+            fluid_synth_cc(engine.synth.get(), 0, static_cast<int>(cc), value);
+            engine.appliedControllers[cc] = value;
+        }
+    }
+    const auto requested = selection.load();
+    if (engine.font >= 0 && engine.lastSelection != requested) {
+        const auto& presets = engine.metadata->presets;
+        const int bank = static_cast<int>(requested >> 16);
+        const int program = static_cast<int>(requested & 0xffffu);
+        auto chosen = find_if(presets.begin(), presets.end(), [=](const Preset& preset) {
+            return preset.bank == bank && preset.program == program;
+        });
+        if (chosen == presets.end())
+            chosen = find_if(presets.begin(), presets.end(), [=](const Preset& preset) { return preset.bank == bank; });
+        if (chosen == presets.end()) chosen = presets.begin();
+        if (chosen != presets.end()) {
+            fluid_synth_program_select(engine.synth.get(), 0, engine.font, chosen->bank, chosen->program);
+            const auto actual = packed(chosen->bank, chosen->program);
+            auto expected = requested;
+            // A control change arriving during adoption must win next block.
+            if (actual != requested && selection.compare_exchange_strong(expected, actual)) {
+                if (renderingModel == this) publishParameters();
+                else triggerAsyncUpdate(); // Never notify a host while holding the builder/lifecycle lock.
+            }
+            engine.lastSelection = actual;
+        }
+    }
+}
+void FluidSynthModel::publishParameters() {
+    const juce::ScopedValueSetter<FluidSynthModel*> guard(publishingSelection, this);
+    const auto current = selection.load();
+    *static_cast<AudioParameterInt*>(valueTreeState.getParameter("bank")) = static_cast<int>(current >> 16);
+    *static_cast<AudioParameterInt*>(valueTreeState.getParameter("preset")) = static_cast<int>(current & 0xffffu);
+}
+void FluidSynthModel::publishCurrentSelection(Engine& engine) {
+    int font, bank, program;
+    if (fluid_synth_get_program(engine.synth.get(), 0, &font, &bank, &program) != FLUID_OK) return;
+    selection.store(packed(bank, program));
+    const bool playable = font == engine.font && any_of(engine.metadata->presets.begin(),
+        engine.metadata->presets.end(), [=](const Preset& preset) {
+            return preset.bank == bank && preset.program == program;
+        });
+    if (playable) engine.lastSelection = packed(bank, program);
+    else {
+        // FluidSynth may successfully assign a null preset for an unsupported
+        // MIDI bank/program. Resolve against this engine's immutable metadata.
+        engine.lastSelection = ~0u;
+        applyControls(engine);
+    }
+    publishParameters();
+}
+FluidSynthModel::SoundFontState FluidSynthModel::getSoundFontState() const {
+    lock_guard<mutex> lock(stateMutex);
+    auto snapshot = committed;
+    snapshot.bankProgram = selection.load();
+    return snapshot;
+}
+void FluidSynthModel::synchroniseUi() {
+    if (auto* manager = juce::MessageManager::getInstanceWithoutCreating())
+        if (manager->isThisTheMessageThread()) handleUpdateNowIfNeeded();
+}
+void FluidSynthModel::handleAsyncUpdate() {
+#if JUICY_ENABLE_TEST_HOOKS
+    if (!juce::MessageManager::getInstance()->isThisTheMessageThread()) ++uiViolations;
+#endif
+    jassert(juce::MessageManager::getInstance()->isThisTheMessageThread());
+    SoundFontState state;
+    shared_ptr<const Metadata> metadata;
+    {
+        lock_guard<mutex> lock(stateMutex);
+        state = committed;
+        metadata = publishedMetadata;
+    }
+    const auto before = selection.load();
+    publishParameters();
+    if (selection.load() != before) triggerAsyncUpdate();
+    if (metadata != displayedMetadata) {
+        ValueTree banks{"banks"};
+        ValueTree bank;
+        int previous = -1;
+        for (const auto& preset : metadata->presets) {
+            if (preset.bank != previous) {
+                bank = {"bank", {{"num", preset.bank}}};
+                banks.appendChild(bank, nullptr);
+                previous = preset.bank;
+            }
+            bank.appendChild({"preset", {{"num", preset.program}, {"name", preset.name}}, {}}, nullptr);
+        }
+        auto target = valueTreeState.state.getChildWithName("banks");
+        target.copyPropertiesAndChildrenFrom(banks, nullptr);
+        target.sendPropertyChangeMessage("synthetic");
+        displayedMetadata = metadata;
+    }
+    auto target = valueTreeState.state.getChildWithName("soundFont");
+    target.setProperty("path", state.path, nullptr);
+    target.setProperty("bookmark", var(state.bookmark), nullptr);
+    target.setProperty("loadError", state.error, nullptr);
+    target.setProperty("loading", loading.load(), nullptr);
+}
+int FluidSynthModel::getCurrentProgram() { return static_cast<int>(selection.load() & 0xffffu); }
+void FluidSynthModel::setCurrentProgram(int index) {
+    *static_cast<AudioParameterInt*>(valueTreeState.getParameter("preset")) = juce::jlimit(0, 127, index);
+}
+const String FluidSynthModel::getProgramName(int index) {
+    shared_ptr<const Metadata> metadata;
+    {
+        lock_guard<mutex> lock(stateMutex);
+        metadata = publishedMetadata;
+    }
+    const auto bank = static_cast<int>(selection.load() >> 16);
+    for (const auto& preset : metadata->presets)
+        if (preset.bank == bank && preset.program == index) return preset.name;
+    return "Preset " + String(index);
+}
+void FluidSynthModel::setSampleRate(float rate) {
+    // Serialized host lifecycle callback, outside processBlock.
+    lock_guard<mutex> lock(buildMutex);
+    adoptWhileStopped();
+    if (targetRate.load() == rate) return;
+    targetRate.store(rate);
+    const auto state = captureChannel(*active);
+    const auto saved = getSoundFontState();
+    Request rebuild{saved.path, saved.bookmark, active->request};
+    auto replacement = prepareFont(rebuild);
+    if (!replacement) {
+        replacement = makeEngine(rate);
+        replacement->request = rebuild.id;
+        {
+            lock_guard<mutex> stateLock(stateMutex);
+            committed.error = "Could not reload SoundFont after sample-rate change: " + saved.path;
+            publishedMetadata = replacement->metadata;
+            publishedHasFont.store(false);
+            desiredEmpty.store(true);
+        }
+        triggerAsyncUpdate();
+    }
+    if (replacement->font >= 0) {
+        lock_guard<mutex> stateLock(stateMutex);
+        committed.path = replacement->path;
+        committed.bookmark = replacement->bookmark;
+        committed.error.clear();
+        publishedMetadata = replacement->metadata;
+        publishedHasFont.store(true);
+        desiredEmpty.store(false);
+        auto expected = replacement->builtSelectionRequest;
+        selection.compare_exchange_strong(expected, replacement->preparedSelection);
+        triggerAsyncUpdate();
+    }
+    restoreChannel(*replacement, state, false);
+    active = std::move(replacement);
+    applyControls(*active);
+}
+void FluidSynthModel::resetPlayback() {
+    if (active) resetEngine(*active);
+    if (fading) resetEngine(*fading);
+}
+void FluidSynthModel::blendRetiringEngine(AudioBuffer<float>& buffer, int start, int count, bool silent) {
+    if (!fading) return;
+    float left[64], right[64];
+    for (int offset = 0; offset < count && fading; offset += 64) {
+        const int length = juce::jmin(64, count - offset, fadeRemaining);
+        std::fill_n(left, length, 0.0f);
+        std::fill_n(right, length, 0.0f);
+        float* pair[] = {left, right};
+        fluid_synth_process(fading->synth.get(), length, 2, pair, 2, pair);
+        if (!silent && fading->request >= unloadEpoch.load()) {
+            for (int i = 0; i < length; ++i) {
+                const float oldGain = static_cast<float>(fadeRemaining - i) / static_cast<float>(fadeSamples);
+                const int frame = start + offset + i;
+                if (buffer.getNumChannels() == 1) {
+                    const float oldSample = 0.5f * (left[i] + right[i]);
+                    buffer.setSample(0, frame, oldGain * oldSample + (1.0f - oldGain) * buffer.getSample(0, frame));
+                } else {
+                    buffer.setSample(0, frame, oldGain * left[i] + (1.0f - oldGain) * buffer.getSample(0, frame));
+                    buffer.setSample(1, frame, oldGain * right[i] + (1.0f - oldGain) * buffer.getSample(1, frame));
+                }
+            }
+        }
+        fadeRemaining -= length;
+        if (fadeRemaining == 0) retired.store(fading.release());
+    }
+}
+FluidSynthModel::ChannelSnapshot FluidSynthModel::captureChannel(Engine& engine) {
+    auto& synth = engine.synth;
+    constexpr int channel = 0;
     ChannelSnapshot state;
     for (int cc = 0; cc < 120; ++cc)
         fluid_synth_get_cc(synth.get(), channel, cc, &state.controllers[static_cast<size_t>(cc)]);
@@ -427,7 +608,9 @@ FluidSynthModel::ChannelSnapshot FluidSynthModel::captureChannel() {
     return state;
 }
 
-void FluidSynthModel::restoreChannel(const ChannelSnapshot& state, bool releasePedals) {
+void FluidSynthModel::restoreChannel(Engine& engine, const ChannelSnapshot& state, bool releasePedals) {
+    auto& synth = engine.synth;
+    constexpr int channel = 0;
     // Restore ordinary controllers, never replay channel-mode commands or
     // RPN/NRPN data-entry transactions in numeric CC order.
     for (int cc = 0; cc < 120; ++cc) {
@@ -446,30 +629,39 @@ void FluidSynthModel::restoreChannel(const ChannelSnapshot& state, bool releaseP
     fluid_synth_cc(synth.get(), channel, 100, 127);
 }
 
-void FluidSynthModel::resetPlayback() {
+void FluidSynthModel::resetEngine(Engine& engine) {
+    auto& synth = engine.synth;
     if (!synth) return;
-    const auto savedChannel = captureChannel();
+    const auto savedChannel = captureChannel(engine);
     fluid_synth_system_reset(synth.get());
     // Voice-off ramps may feed the effects during the first render quantum.
     // Finish that ramp (plus any cached fragment), then clear the effects again.
     fluid_synth_process(synth.get(), 128, 0, nullptr, 0, nullptr);
     fluid_synth_system_reset(synth.get());
-    restoreChannel(savedChannel, true);
-    if (sfont_id >= 0) parameterChanged("preset", 0.0f);
+    restoreChannel(engine, savedChannel, true);
+    engine.lastSelection = ~0u;
+    applyControls(engine);
     // Drain the bounded reset/mixer pipeline without exposing pre-reset audio.
     // No allocation, bank I/O or synth reconstruction; output mixing is skipped.
     fluid_synth_process(synth.get(), 256, 0, nullptr, 0, nullptr);
 }
 
 void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiMessages) {
+    const juce::ScopedValueSetter<FluidSynthModel*> renderGuard(renderingModel, this);
+    adoptPending();
+    auto& engine = *active;
+    auto& synth = engine.synth;
+    applyControls(engine);
+    constexpr int channel = 0;
     int rendered = 0;
     const auto renderUntil = [&](int end) {
         const int count = end - rendered;
         if (count <= 0) return;
-        if (sfont_id < 0) {
+        if (engine.font < 0 || desiredEmpty.load() || engine.request < unloadEpoch.load()) {
             // Empty projects are silent, including any residual effect output.
             // Advance the engine so stale buffers cannot return on a later load.
             fluid_synth_process(synth.get(), count, 0, nullptr, 0, nullptr);
+            blendRetiringEngine(buffer, rendered, count, true);
             rendered = end;
             return;
         }
@@ -493,6 +685,7 @@ void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiM
                                 buffer.getWritePointer(1, rendered)};
             fluid_synth_process(synth.get(), count, 2, outputs, 2, outputs);
         }
+        blendRetiringEngine(buffer, rendered, count, false);
         rendered = end;
     };
     for (const auto metadata : midiMessages) {
@@ -501,6 +694,7 @@ void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiM
         DEBUG_PRINT(m.getDescription());
         
         if (m.isNoteOn()) {
+            if (engine.font < 0 || desiredEmpty.load() || engine.request < unloadEpoch.load()) continue;
             fluid_synth_noteon(
                 synth.get(),
                 channel,
@@ -518,6 +712,11 @@ void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiM
                 m.getControllerNumber(),
                 m.getControllerValue());
 
+            const int cc = m.getControllerNumber();
+            if (controllerToParam.find(static_cast<fluid_midi_control_change>(cc)) != controllerToParam.end()) {
+                requestedControllers[static_cast<size_t>(cc)].store(m.getControllerValue());
+                engine.appliedControllers[static_cast<size_t>(cc)] = m.getControllerValue();
+            }
             fluid_midi_control_change controllerNum{static_cast<fluid_midi_control_change>(m.getControllerNumber())};
             if (auto it{controllerToParam.find(controllerNum)};
                 it != end(controllerToParam)) {
@@ -537,7 +736,7 @@ void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiM
                 synth.get(),
                 channel,
                 m.getProgramChangeNumber())};
-            if (result == FLUID_OK) publishCurrentSelection();
+            if (result == FLUID_OK) publishCurrentSelection(engine);
         } else if (m.isPitchWheel()) {
             fluid_synth_pitch_bend(
                 synth.get(),
@@ -575,60 +774,4 @@ void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiM
     // Logger::outputDebugString ( juce::String::formatted("hey: %d\n", pval) );
 
     renderUntil(buffer.getNumSamples());
-}
-
-int FluidSynthModel::getNumPrograms()
-{
-    return 128;   // NB: some hosts don't cope very well if you tell them there are 0 programs,
-                // so this should be at least 1, even if you're not really implementing programs.
-}
-
-int FluidSynthModel::getCurrentProgram()
-{
-    RangedAudioParameter *param{valueTreeState.getParameter("preset")};
-    jassert(dynamic_cast<AudioParameterInt*>(param) != nullptr);
-    AudioParameterInt* castParam{dynamic_cast<AudioParameterInt*>(param)};
-    return castParam->get();
-}
-
-void FluidSynthModel::setCurrentProgram(int index)
-{
-    RangedAudioParameter *param{valueTreeState.getParameter("preset")};
-    jassert(dynamic_cast<AudioParameterInt*>(param) != nullptr);
-    AudioParameterInt* castParam{dynamic_cast<AudioParameterInt*>(param)};
-    // GUI components poll parameter atomics on their own message-thread timer.
-    // Never acquire a message-thread lock from a host/audio callback.
-    *castParam = index;
-}
-
-const String FluidSynthModel::getProgramName(int index)
-{
-     fluid_sfont_t* sfont{
-         sfont_id == -1
-         ? nullptr
-         : fluid_synth_get_sfont_by_id(synth.get(), sfont_id)
-     };
-     if (!sfont) {
-         String presetName{"Preset "};
-         return presetName << index;
-     }
-     RangedAudioParameter *param{valueTreeState.getParameter("bank")};
-     jassert(dynamic_cast<AudioParameterInt*>(param) != nullptr);
-     AudioParameterInt* castParam{dynamic_cast<AudioParameterInt*>(param)};
-     int bank{castParam->get()};
-    
-     fluid_preset_t *preset{fluid_sfont_get_preset(
-         sfont,
-         bank,
-         index)};
-     if (!preset) {
-         String presetName{"Preset "};
-         return presetName << index;
-     }
-     return {fluid_preset_get_name(preset)};
-}
-
-void FluidSynthModel::changeProgramName(int index, const String& newName)
-{
-    // no-op; we don't support modifying the soundfont, so let's not support modification of preset names.
 }

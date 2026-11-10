@@ -56,6 +56,7 @@ target_link_libraries(JuicySFPlugin PRIVATE
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 option(JUICY_BUILD_TESTS "Build processor regression tests" OFF)
 if(JUICY_BUILD_TESTS)
+    target_compile_definitions(JuicySFPlugin PUBLIC JUICY_ENABLE_TEST_HOOKS=1)
     enable_testing()
     juce_add_console_app(JuicyRegressionTests PRODUCT_NAME "Juicy regression tests")
     target_sources(JuicyRegressionTests PRIVATE tests/ProcessorTests.cpp)
@@ -66,6 +67,7 @@ if(JUICY_BUILD_TESTS)
     target_include_directories(JuicyRegressionTests PRIVATE
         $<TARGET_PROPERTY:JuicySFPlugin,INCLUDE_DIRECTORIES>)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS tests/make_fixture.py)
     execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/make_fixture.py"
         "${CMAKE_BINARY_DIR}/test-sine.sf2" COMMAND_ERROR_IS_FATAL ANY)
     add_test(NAME processor-regressions COMMAND JuicyRegressionTests "${CMAKE_BINARY_DIR}/test-sine.sf2")

@@ -25,7 +25,7 @@ using juce::SurjectiveMidiKeyboardComponent;
 */
 class JuicySFAudioProcessorEditor
 : public AudioProcessorEditor
-, private Value::Listener
+, private juce::Timer
 {
 public:
     JuicySFAudioProcessorEditor(
@@ -42,18 +42,13 @@ public:
     bool keyStateChanged (bool isKeyDown) override;
 
 private:
-    void valueChanged (Value&) override;
+    void timerCallback() override;
 
     // This reference is provided as a quick way for your editor to
     // access the processor object that created it.
     JuicySFAudioProcessor& processor;
 
     AudioProcessorValueTreeState& valueTreeState;
-
-    // these are used to persist the UI's size - the values are stored along with the
-    // filter's other parameters, and the UI component will update them when it gets
-    // resized.
-    Value lastUIWidth, lastUIHeight;
 
     MyColours colours;
     SurjectiveMidiKeyboardComponent midiKeyboard;
