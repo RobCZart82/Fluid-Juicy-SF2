@@ -14,6 +14,8 @@
 #include "JuceHeader.h"
 #include "FluidSynthModel.h"
 #include <list>
+#include <atomic>
+#include "GuiConstants.h"
 
 using namespace std;
 
@@ -65,9 +67,13 @@ public:
     FluidSynthModel& getFluidSynthModel();
 
     MidiKeyboardState keyboardState;
+    std::pair<int, int> getEditorSize() const;
+    void setEditorSize(int width, int height);
 
 private:
     void initialiseSynth();
+    std::atomic<uint64_t> editorSize{(uint64_t(GuiConstants::minWidth) << 32)
+                                    | uint64_t(GuiConstants::minHeight)};
 
     AudioProcessorValueTreeState valueTreeState;
 

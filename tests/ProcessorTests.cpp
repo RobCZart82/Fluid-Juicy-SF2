@@ -3,6 +3,7 @@
 #include <iostream>
 #include <thread>
 #include <functional>
+#include "LoaderTests.h"
 
 int main(int argc, char** argv) {
     juce::ScopedJuceInitialiser_GUI initialise;
@@ -368,5 +369,6 @@ int main(int argc, char** argv) {
                   "unaligned MIDI note stays within the documented FluidSynth quantum across host blocks");
         }
     }
+    failures += runLoaderTests(originalPath);
     return failures == 0 ? 0 : 1;
 }

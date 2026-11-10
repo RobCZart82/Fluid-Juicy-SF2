@@ -37,7 +37,7 @@ all runtime dependencies or replace clean-machine testing.
 
 See [next development gates](DEVELOPMENT_PLAN.md).
 
-## Bank replacement behavior (development branch)
+## Bank replacement behavior (historical PR #7 batch)
 
 A rejected replacement leaves an already loaded bank and its saved reference
 intact. Errors are transient UI messages and are not serialized as project data.
@@ -88,3 +88,13 @@ Compiler, CMake, Python and platform SDKs remain external prerequisites.
 Packaging a new binary distribution still requires actual clean Git checkouts.
 CI verifies the exported entry point outside the checkout; full archive rebuild
 acceptance is recorded separately from manifest verification.
+
+## Background loader follow-up
+
+GUI browse/drop now prepares an independent synth on a serial background worker.
+Ready engines are adopted at block boundaries with a 512-sample crossfade; old
+engines and file-access scopes are reclaimed outside rendering. Host state
+restoration remains a synchronous non-real-time operation for offline readiness.
+UI models, program-name queries and persistence use separate snapshots rather
+than shared raw synth/font pointers. See [ownership, ordering and test limits](LOADER_ARCHITECTURE.md).
+The 64-sample MIDI timing limitation and full GM2/GS acceptance remain open.

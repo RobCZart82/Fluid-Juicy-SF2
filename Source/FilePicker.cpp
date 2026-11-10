@@ -83,7 +83,7 @@ void FilePicker::filenameComponentChanged (FilenameComponent*) {
     }
 
 #endif
-    fluidSynthModel.loadSoundFont(fileChooser.getCurrentFile().getFullPathName(), bookmark);
+    fluidSynthModel.requestSoundFont(fileChooser.getCurrentFile().getFullPathName(), bookmark);
     // Also refresh after repeated failures whose identical error property may not notify.
     triggerAsyncUpdate();
 }
@@ -91,7 +91,7 @@ void FilePicker::filenameComponentChanged (FilenameComponent*) {
 void FilePicker::valueTreePropertyChanged(ValueTree& treeWhosePropertyHasChanged,
                                                const Identifier& property) {
     if (treeWhosePropertyHasChanged.getType() == StringRef("soundFont")
-        && (property == StringRef("path") || property == StringRef("loadError")))
+        && (property == StringRef("path") || property == StringRef("loadError") || property == StringRef("loading")))
         triggerAsyncUpdate();
 }
 
@@ -102,7 +102,8 @@ void FilePicker::handleAsyncUpdate() {
     fileChooser.setCurrentFile(path.isEmpty() ? File() : File(path), true, dontSendNotification);
     currentPath = path;
     const String error = state.getProperty("loadError", "");
-    fileChooser.setTooltip(error.isEmpty() ? "Choose an SF2 or SF3 SoundFont" : error);
+    fileChooser.setTooltip(fluidSynthModel.isLoading() ? "Loading SoundFont in the background..."
+        : error.isEmpty() ? "Choose an SF2 or SF3 SoundFont" : error);
     if (error.isNotEmpty() && error != displayedError)
         juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
             "SoundFont could not be loaded", error);

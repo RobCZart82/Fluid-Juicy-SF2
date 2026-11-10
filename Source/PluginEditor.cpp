@@ -24,6 +24,7 @@ JuicySFAudioProcessorEditor::JuicySFAudioProcessorEditor(
 , filePicker{valueTreeState, p.getFluidSynthModel()}
 , slidersComponent{valueTreeState, p.getFluidSynthModel()}
 {
+    const auto restoredSize = processor.getEditorSize();
     setLookAndFeel(&colours);
 
     // set resize limits for this plug-in
@@ -33,14 +34,9 @@ JuicySFAudioProcessorEditor::JuicySFAudioProcessorEditor(
         GuiConstants::maxWidth,
         GuiConstants::maxHeight);
 
-    lastUIWidth.referTo(valueTreeState.state.getChildWithName("uiState").getPropertyAsValue("width",  nullptr));
-    lastUIHeight.referTo(valueTreeState.state.getChildWithName("uiState").getPropertyAsValue("height", nullptr));
-
-    // set our component's initial size to be the last one that was stored in the filter's settings
-    setSize(lastUIWidth.getValue(), lastUIHeight.getValue());
-
-    lastUIWidth.addListener(this);
-    lastUIHeight.addListener(this);
+    setSize(restoredSize.first, restoredSize.second);
+    processor.getFluidSynthModel().synchroniseUi();
+    startTimerHz(30);
 
     midiKeyboard.setName ("MIDI Keyboard");
 
@@ -56,15 +52,15 @@ JuicySFAudioProcessorEditor::JuicySFAudioProcessorEditor(
 
 }
 
-// called when the stored window size changes
-void JuicySFAudioProcessorEditor::valueChanged(Value&) {
-    setSize(lastUIWidth.getValue(), lastUIHeight.getValue());
+void JuicySFAudioProcessorEditor::timerCallback() {
+    processor.getFluidSynthModel().synchroniseUi();
+    const auto size = processor.getEditorSize();
+    if (size.first != getWidth() || size.second != getHeight()) setSize(size.first, size.second);
 }
 
 JuicySFAudioProcessorEditor::~JuicySFAudioProcessorEditor()
 {
-    lastUIWidth.removeListener(this);
-    lastUIHeight.removeListener(this);
+    stopTimer();
     setLookAndFeel(nullptr);
 }
 
@@ -99,8 +95,7 @@ void JuicySFAudioProcessorEditor::resized()
 
     tablesComponent.setBounds(rContent);
 
-    lastUIWidth = getWidth();
-    lastUIHeight = getHeight();
+    processor.setEditorSize(getWidth(), getHeight());
 }
 
 bool JuicySFAudioProcessorEditor::keyPressed(const KeyPress &key) {

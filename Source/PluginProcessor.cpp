@@ -229,38 +229,24 @@ void JuicySFAudioProcessor::getStateInformation (MemoryBlock& destData)
     XmlElement xml{"MYPLUGINSETTINGS"};
 
     // Store the values of all our parameters, using their param ID as the XML attribute
+    const auto fontState = fluidSynthModel.getSoundFontState();
+    const auto selected = fontState.bankProgram;
     XmlElement* params{xml.createNewChildElement("params")};
     for (auto* param : getParameters()) {
          if (auto* p = dynamic_cast<AudioProcessorParameterWithID*> (param)) {
-             params->setAttribute(p->paramID, p->getValue());
+             const float value = p->paramID == "bank" ? static_cast<float>(selected >> 16) / 128.0f
+                 : p->paramID == "preset" ? static_cast<float>(selected & 0xffffu) / 127.0f
+                 : p->getValue();
+             params->setAttribute(p->paramID, value);
          }
     }
-    {
-        ValueTree tree{valueTreeState.state.getChildWithName("uiState")};
-        XmlElement* newElement{xml.createNewChildElement("uiState")};
-        {
-            double value{tree.getProperty("width", GuiConstants::minWidth)};
-            newElement->setAttribute("width", value);
-        }
-        {
-            double value{tree.getProperty("height", GuiConstants::minHeight)};
-            newElement->setAttribute("height", value);
-        }
-    }
-    {
-        ValueTree tree{valueTreeState.state.getChildWithName("soundFont")};
-        XmlElement* newElement{xml.createNewChildElement("soundFont")};
-        {
-            String value = tree.getProperty("path", "");
-            newElement->setAttribute("path", value);
-        }
-        {
-            MemoryBlock buffer;
-            var value = tree.getProperty("bookmark", buffer);
-            jassert(value.isBinaryData());
-            newElement->setAttribute("bookmark", value.getBinaryData()->toBase64Encoding());
-        }
-    }
+    const auto size = getEditorSize();
+    auto* ui = xml.createNewChildElement("uiState");
+    ui->setAttribute("width", size.first);
+    ui->setAttribute("height", size.second);
+    auto* font = xml.createNewChildElement("soundFont");
+    font->setAttribute("path", fontState.path);
+    font->setAttribute("bookmark", fontState.bookmark.toBase64Encoding());
 
     DEBUG_PRINT(xml.createDocument("",false,false));
 
@@ -289,21 +275,10 @@ void JuicySFAudioProcessor::setStateInformation (const void* data, int sizeInByt
                         return; // A failed project-bank replacement must preserve the working parameters too.
                 }
             }
-            {
-                ValueTree tree{valueTreeState.state.getChildWithName("uiState")};
-                XmlElement* xmlElement{xmlState->getChildByName("uiState")};
-                if (xmlElement) {
-                    {
-                        Value value{tree.getPropertyAsValue("width", nullptr)};
-                        value = juce::jlimit(GuiConstants::minWidth, GuiConstants::maxWidth,
-                            xmlElement->getIntAttribute("width", value.getValue()));
-                    }
-                    {
-                        Value value{tree.getPropertyAsValue("height", nullptr)};
-                        value = juce::jlimit(GuiConstants::minHeight, GuiConstants::maxHeight,
-                            xmlElement->getIntAttribute("height", value.getValue()));
-                    }
-                }
+            if (auto* ui = xmlState->getChildByName("uiState")) {
+                const auto size = getEditorSize();
+                setEditorSize(ui->getIntAttribute("width", size.first),
+                              ui->getIntAttribute("height", size.second));
             }
             XmlElement* params{xmlState->getChildByName("params")};
             if (params) {
@@ -331,4 +306,14 @@ FluidSynthModel& JuicySFAudioProcessor::getFluidSynthModel() {
 AudioProcessor* JUCE_CALLTYPE createPluginFilter()
 {
     return new JuicySFAudioProcessor();
+}
+
+std::pair<int, int> JuicySFAudioProcessor::getEditorSize() const {
+    const auto size = editorSize.load();
+    return {static_cast<int>(size >> 32), static_cast<int>(size & 0xffffffffu)};
+}
+void JuicySFAudioProcessor::setEditorSize(int width, int height) {
+    width = juce::jlimit(GuiConstants::minWidth, GuiConstants::maxWidth, width);
+    height = juce::jlimit(GuiConstants::minHeight, GuiConstants::maxHeight, height);
+    editorSize.store((uint64_t(width) << 32) | uint64_t(height));
 }

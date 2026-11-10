@@ -4,7 +4,7 @@ Baseline: master `8f33ca5c878be9244388d50a94e57c5825454a74`, 2026-11-10.
 This follows the newer ten-item audit; A identifiers are separate from the
 older F identifiers in [the ledger](BUG_LEDGER.md).
 
-## First implementation batch
+## First implementation batch (merged PR #15)
 
 | ID | Behavior | Status |
 | --- | --- | --- |
@@ -16,7 +16,7 @@ older F identifiers in [the ledger](BUG_LEDGER.md).
 | A06 | Effect output | Wet and dry returns mixed through FluidSynth's supported buffer aliasing; CC91/93 zero/nonzero tail regression |
 | A07 / F06 | Tail reporting | Unbounded tail instead of zero; long-release audio regression, host render acceptance still required |
 | A08 | Exported source rebuilding | Export manifest and Git-free verification/build entry point implemented; mutation/missing-file/path rejection tests and exported-bundle CI smoke check |
-| A09 / F05 | Loader and engine ownership | Open: separate architectural batch specified below |
+| A09 / F05 | Loader and engine ownership | Prepared-engine/background loader implemented in the follow-up; see [ownership and acceptance](LOADER_ARCHITECTURE.md) |
 | A10 | Keyboard dirty flag | Atomic exchange on the message-thread timer; audio listeners only set the flag |
 
 Validation before review: local macOS arm64 VST3, standalone and both CTest
@@ -36,7 +36,7 @@ Wet output is now audible, so historical dry-only sessions can sound different.
 Tail length is unbounded and can require an explicit offline render end in the
 host. See [compatibility notes](MODERNIZATION.md) for these intentional changes.
 
-## Next architectural batch: A09
+## A09 design gates (implemented by the follow-up)
 
 Do not put a file loader or a long blocking mutex around the existing render
 function and call it real-time safe. The replacement design must meet all of
@@ -65,7 +65,9 @@ these gates before A09 can be closed:
    latest-request ordering, destruction and multiple instances. Run thread and
    address sanitizers, then sustained and offline REAPER acceptance.
 
-This batch is intentionally distinct from the corrected render/state regressions:
-the existing synchronous loader and shared engine access remain an acknowledged
-limitation, not a completed fix. The future 16-part model must build on this
-ownership contract rather than multiply the current single-part state.
+PR #15 intentionally left this architectural batch open. Its follow-up now
+implements prepared-engine handover, background GUI loading, off-render
+reclamation and message-thread UI snapshots; see [the implementation contract](LOADER_ARCHITECTURE.md).
+Non-real-time host state restoration remains synchronous for offline readiness.
+Manual REAPER acceptance remains open. The future 16-part model must build on
+this ownership contract rather than multiply the former single-part state.
