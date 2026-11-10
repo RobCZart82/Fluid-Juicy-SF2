@@ -24,6 +24,8 @@ JuicySFAudioProcessorEditor::JuicySFAudioProcessorEditor(
 , filePicker{valueTreeState, p.getFluidSynthModel()}
 , slidersComponent{valueTreeState, p.getFluidSynthModel()}
 {
+    setLookAndFeel(&colours);
+
     // set resize limits for this plug-in
     setResizeLimits(
         GuiConstants::minWidth,
@@ -63,6 +65,7 @@ JuicySFAudioProcessorEditor::~JuicySFAudioProcessorEditor()
 {
     lastUIWidth.removeListener(this);
     lastUIHeight.removeListener(this);
+    setLookAndFeel(nullptr);
 }
 
 //==============================================================================
