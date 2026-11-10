@@ -16,6 +16,7 @@
 #include "SurjectiveMidiKeyboardComponent.h"
 #include "FilePicker.h"
 #include "SlidersComponent.h"
+#include "MyColours.h"
 
 using juce::SurjectiveMidiKeyboardComponent;
 
@@ -54,6 +55,7 @@ private:
     // resized.
     Value lastUIWidth, lastUIHeight;
 
+    MyColours colours;
     SurjectiveMidiKeyboardComponent midiKeyboard;
     TablesComponent tablesComponent;
     FilePicker filePicker;
