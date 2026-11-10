@@ -8,14 +8,14 @@
 #include <fluidsynth.h>
 #include <memory>
 #include <map>
+#include <vector>
 #include "MidiConstants.h"
 #include "MacFileAccess.h"
 
 using namespace std;
 
 class FluidSynthModel
-: public ValueTree::Listener
-, public AudioProcessorValueTreeState::Listener {
+: public AudioProcessorValueTreeState::Listener {
 public:
     FluidSynthModel(
         AudioProcessorValueTreeState& valueTreeState
@@ -36,17 +36,11 @@ public:
     //==============================================================================
     virtual void parameterChanged (const String& parameterID, float newValue) override;
     
-    virtual void valueTreePropertyChanged (ValueTree& treeWhosePropertyHasChanged,
-                                           const Identifier& property) override;
-    inline virtual void valueTreeChildAdded (ValueTree& parentTree,
-                                             ValueTree& childWhichHasBeenAdded) override {};
-    inline virtual void valueTreeChildRemoved (ValueTree& parentTree,
-                                               ValueTree& childWhichHasBeenRemoved,
-                                               int indexFromWhichChildWasRemoved) override {};
-    inline virtual void valueTreeChildOrderChanged (ValueTree& parentTreeWhoseChildrenHaveMoved,
-                                                    int oldIndex, int newIndex) override {};
-    inline virtual void valueTreeParentChanged (ValueTree& treeWhoseParentHasChanged) override {};
-    inline virtual void valueTreeRedirected (ValueTree& treeWhichHasBeenChanged) override {};
+    // Explicit request keeps path/bookmark changes transactional rather than
+    // loading halfway through separate ValueTree property notifications.
+    bool loadSoundFont(const String& path, const MemoryBlock& bookmark);
+    String getLoadError() const;
+    bool hasLoadedSoundFont() const { return sfont_id >= 0; }
 
     //==============================================================================
     int getNumPrograms();
@@ -63,6 +57,8 @@ private:
     static const map<String, fluid_midi_control_change> paramToController;
 
     void refreshBanks();
+    void publishCurrentSelection();
+    static thread_local FluidSynthModel* publishingSelection;
 
     AudioProcessorValueTreeState& valueTreeState;
 
@@ -73,14 +69,14 @@ private:
 #if JUCE_MAC || JUCE_IOS
     // Declared before the synth so access outlives FluidSynth destruction.
     std::unique_ptr<JuicyMac::ScopedFileAccess> fileAccess;
+    std::vector<std::unique_ptr<JuicyMac::ScopedFileAccess>> retiredFileAccess;
 #endif
     unique_ptr<fluid_settings_t, decltype(&delete_fluid_settings)> settings;
     unique_ptr<fluid_synth_t, decltype(&delete_fluid_synth)> synth;
 
     float currentSampleRate;
 
-    void unloadAndLoadFont(const String &absPath);
-    void loadFont(const String &absPath);
+    bool replaceFont(const String& path);
     
     int sfont_id;
     unsigned int channel;

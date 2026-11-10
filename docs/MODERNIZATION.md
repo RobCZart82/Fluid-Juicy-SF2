@@ -36,3 +36,14 @@ ad-hoc signature. Windows checks AMD64 PE32+ binaries; this does not verify
 all runtime dependencies or replace clean-machine testing.
 
 See [next development gates](DEVELOPMENT_PLAN.md).
+
+## Bank replacement behavior (development branch)
+
+A rejected replacement leaves an already loaded bank and its saved reference
+intact. Errors are transient UI messages and are not serialized as project data.
+For a fresh instance whose project bank is missing, the requested reference is
+retained for later recovery. A playable candidate is committed only after load
+and preset selection succeed. Bank and program selected by MIDI are mirrored to
+project parameters without selecting an older UI bank again. See F03/F04 in the
+[ledger](BUG_LEDGER.md) for exact validation status; asynchronous loading remains
+F05 and is not implemented by this batch.

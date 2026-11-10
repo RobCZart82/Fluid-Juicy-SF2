@@ -16,6 +16,8 @@ using JuicyMac::CFPtr;
 
 using namespace std;
 
+thread_local FluidSynthModel* FluidSynthModel::publishingSelection = nullptr;
+
 const map<fluid_midi_control_change, String> FluidSynthModel::controllerToParam{
     {SOUND_CTRL2, "filterResonance"}, // MIDI CC 71 Timbre/Harmonic Intensity (filter resonance)
     {SOUND_CTRL3, "release"}, // MIDI CC 72 Release time
@@ -51,7 +53,7 @@ FluidSynthModel::FluidSynthModel(
     for (const auto &[param, controller]: paramToController) {
         valueTreeState.addParameterListener(param, this);
     }
-    valueTreeState.state.addListener(this);
+
 }
 
 FluidSynthModel::~FluidSynthModel() {
@@ -60,7 +62,7 @@ FluidSynthModel::~FluidSynthModel() {
     }
     valueTreeState.removeParameterListener("bank", this);
     valueTreeState.removeParameterListener("preset", this);
-    valueTreeState.state.removeListener(this);
+
 }
 
 void FluidSynthModel::initialise() {
@@ -176,7 +178,7 @@ void FluidSynthModel::initialise() {
 const StringArray FluidSynthModel::programChangeParams{"bank", "preset"};
 void FluidSynthModel::parameterChanged(const String& parameterID, float newValue) {
     if (programChangeParams.contains(parameterID)) {
-        if (!synth || sfont_id < 0) return;
+        if (publishingSelection == this || !synth || sfont_id < 0) return;
         int bank, preset;
         {
             RangedAudioParameter *param{valueTreeState.getParameter("bank")};
@@ -215,58 +217,75 @@ void FluidSynthModel::parameterChanged(const String& parameterID, float newValue
     }
 }
 
-void FluidSynthModel::valueTreePropertyChanged(ValueTree& treeWhosePropertyHasChanged,
-                                               const Identifier& property) {
-    if (treeWhosePropertyHasChanged.getType() == StringRef("soundFont")) {
+bool FluidSynthModel::loadSoundFont(const String& requestedPath, const MemoryBlock& bookmark) {
+    if (requestedPath.isEmpty() && bookmark.getSize() == 0) return true;
+    auto state = valueTreeState.state.getChildWithName("soundFont");
+    String path = requestedPath;
+    MemoryBlock committedBookmark = bookmark;
 #if JUCE_MAC || JUCE_IOS
-        if (property == StringRef("bookmark")) {
-            const auto bookmark = treeWhosePropertyHasChanged.getProperty("bookmark");
-            const auto* bytes = bookmark.getBinaryData();
-            if (bytes != nullptr && bytes->getSize() > 0) {
-                CFPtr<CFDataRef> data{CFDataCreate(nullptr,
-                    static_cast<const UInt8*>(bytes->getData()), static_cast<CFIndex>(bytes->getSize()))};
-                CFErrorRef error = nullptr;
-                Boolean stale = false;
-                CFURLRef resolved = data ? CFURLCreateByResolvingBookmarkData(nullptr, data.get(),
-                    kCFURLBookmarkResolutionWithSecurityScope, nullptr, nullptr, &stale, &error) : nullptr;
-                CFPtr<CFErrorRef> ownedError{error};
-                auto access = std::make_unique<JuicyMac::ScopedFileAccess>(resolved);
-                if (access->url) {
-                    CFPtr<CFStringRef> cfPath{CFURLCopyFileSystemPath(access->url.get(), kCFURLPOSIXPathStyle)};
-                    const String path = cfPath ? String::fromCFString(cfPath.get()) : String();
-                    if (path.isNotEmpty()) {
-                        unloadAndLoadFont(path);
-                        // Keep access alive for any deferred sample reads until replacement/destruction.
-                        fileAccess = std::move(access);
-                        return;
-                    }
-                }
-            }
-            const String path = treeWhosePropertyHasChanged.getProperty("path", "");
-            if (path.isNotEmpty()) {
-                unloadAndLoadFont(path);
-                fileAccess.reset();
-            }
-        } else if (property == StringRef("path")) {
-            const auto bookmark = treeWhosePropertyHasChanged.getProperty("bookmark");
-            const auto* bytes = bookmark.getBinaryData();
-            if (bytes == nullptr || bytes->getSize() == 0) {
-                const String path = treeWhosePropertyHasChanged.getProperty("path", "");
-                if (path.isNotEmpty()) {
-                    unloadAndLoadFont(path);
-                    fileAccess.reset();
-                }
-            }
+    std::unique_ptr<JuicyMac::ScopedFileAccess> access;
+    if (bookmark.getSize() > 0) {
+        CFPtr<CFDataRef> data{CFDataCreate(nullptr, static_cast<const UInt8*>(bookmark.getData()),
+            static_cast<CFIndex>(bookmark.getSize()))};
+        CFErrorRef error = nullptr;
+        Boolean stale = false;
+        CFURLRef resolved = data ? CFURLCreateByResolvingBookmarkData(nullptr, data.get(),
+            kCFURLBookmarkResolutionWithSecurityScope, nullptr, nullptr, &stale, &error) : nullptr;
+        CFPtr<CFErrorRef> ownedError{error};
+        access = std::make_unique<JuicyMac::ScopedFileAccess>(resolved);
+        if (access->url) {
+            CFPtr<CFStringRef> cfPath{CFURLCopyFileSystemPath(access->url.get(), kCFURLPOSIXPathStyle)};
+            if (cfPath) path = String::fromCFString(cfPath.get());
+        } else {
+            access.reset();
+            committedBookmark.reset();
         }
-#else
-        if (property == StringRef("path")) {
-            String soundFontPath = treeWhosePropertyHasChanged.getProperty("path", "");
-            if (soundFontPath.isNotEmpty()) {
-                unloadAndLoadFont(soundFontPath);
-            }
-        }
-#endif
     }
+#endif
+    bool loaded = path.isNotEmpty() && replaceFont(path);
+    if (!loaded && path != requestedPath && requestedPath.isNotEmpty()) {
+        // A stale bookmark must not hide a valid saved/relocated path.
+        path = requestedPath;
+        committedBookmark.reset();
+#if JUCE_MAC || JUCE_IOS
+        access.reset();
+#endif
+        loaded = replaceFont(path);
+    }
+    if (!loaded) {
+        if (sfont_id < 0) {
+            // A fresh project with missing media must retain its reference for relocation.
+            state.setProperty("path", requestedPath, nullptr);
+            state.setProperty("bookmark", var(bookmark), nullptr);
+        }
+        state.setProperty("loadError", "Could not load SoundFont: " + requestedPath
+            + ". Check that the file exists and is a valid SF2/SF3 bank. The previous bank is kept when available.", nullptr);
+        return false;
+    }
+#if JUCE_MAC || JUCE_IOS
+    // Old voices/fonts may be freed later by FluidSynth. Retain their security
+    // scopes until the engine is rebuilt or destroyed, not merely until sfload returns.
+    if (fileAccess) retiredFileAccess.push_back(std::move(fileAccess));
+    fileAccess = std::move(access);
+#endif
+    state.setProperty("path", path, nullptr);
+    state.setProperty("bookmark", var(committedBookmark), nullptr);
+    state.setProperty("loadError", "", nullptr);
+    return true;
+}
+
+String FluidSynthModel::getLoadError() const {
+    return valueTreeState.state.getChildWithName("soundFont").getProperty("loadError", "");
+}
+
+void FluidSynthModel::publishCurrentSelection() {
+    int font = -1, bank = 0, program = 0;
+    if (fluid_synth_get_program(synth.get(), channel, &font, &bank, &program) != FLUID_OK) return;
+    // Suppress only this same-thread feedback path. A GUI/host request on a
+    // different thread is not silently swallowed by a process-wide guard.
+    const juce::ScopedValueSetter<FluidSynthModel*> guard(publishingSelection, this);
+    *static_cast<AudioParameterInt*>(valueTreeState.getParameter("bank")) = bank;
+    *static_cast<AudioParameterInt*>(valueTreeState.getParameter("preset")) = program;
 }
 
 void FluidSynthModel::setControllerValue(int controller, int value) {
@@ -281,24 +300,33 @@ int FluidSynthModel::getChannel() {
     return channel;
 }
 
-void FluidSynthModel::unloadAndLoadFont(const String &absPath) {
-    // in the base case, there is no font loaded
-    if (fluid_synth_sfcount(synth.get()) > 0) {
-        // if -1 is returned, that indicates failure
-        // not really sure how to handle "fail to unload"
-        fluid_synth_sfunload(synth.get(), sfont_id, 1);
-        sfont_id = -1;
+bool FluidSynthModel::replaceFont(const String& path) {
+    if (!synth) return false;
+    // Do not reset channel presets or unload a working bank until the candidate
+    // has loaded and a playable preset has been selected successfully.
+    const int candidate = fluid_synth_sfload(synth.get(), path.toStdString().c_str(), 0);
+    if (candidate < 0) return false;
+    const int bank = static_cast<int>(valueTreeState.getRawParameterValue("bank")->load());
+    const int program = static_cast<int>(valueTreeState.getRawParameterValue("preset")->load());
+    int result = fluid_synth_program_select(synth.get(), channel, candidate, bank, program);
+    if (result != FLUID_OK) {
+        if (auto* font = fluid_synth_get_sfont_by_id(synth.get(), candidate)) {
+            fluid_sfont_iteration_start(font);
+            if (auto* first = fluid_sfont_iteration_next(font))
+                result = fluid_synth_program_select(synth.get(), channel, candidate,
+                    fluid_preset_get_banknum(first), fluid_preset_get_num(first));
+        }
     }
-    loadFont(absPath);
-}
-
-void FluidSynthModel::loadFont(const String &absPath) {
-    if (!absPath.isEmpty()) {
-        sfont_id = fluid_synth_sfload(synth.get(), absPath.toStdString().c_str(), 1);
-        // if -1 is returned, that indicates failure
+    if (result != FLUID_OK) {
+        fluid_synth_sfunload(synth.get(), candidate, 0);
+        return false;
     }
-    // refresh regardless of success, if only to clear the table
+    const int previous = sfont_id;
+    sfont_id = candidate;
+    if (previous >= 0) fluid_synth_sfunload(synth.get(), previous, 0);
+    publishCurrentSelection();
     refreshBanks();
+    return true;
 }
 
 void FluidSynthModel::refreshBanks() {
@@ -360,10 +388,13 @@ void FluidSynthModel::setSampleRate(float sampleRate) {
         if (auto* font = fluid_synth_get_sfont_by_id(synth.get(), sfont_id))
             path = String::fromUTF8(fluid_sfont_get_name(font));
     synth.reset();
+#if JUCE_MAC || JUCE_IOS
+    retiredFileAccess.clear();
+#endif
     settings.reset();
     sfont_id = -1;
     initialise();
-    if (path.isNotEmpty()) loadFont(path);
+    if (path.isNotEmpty()) replaceFont(path);
     for (const auto& entry : paramToController)
         parameterChanged(entry.first, 0.0f);
     if (sfont_id >= 0) parameterChanged("preset", 0.0f);
@@ -421,12 +452,7 @@ void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiM
                 synth.get(),
                 channel,
                 m.getProgramChangeNumber())};
-            if (result == FLUID_OK) {
-                RangedAudioParameter *param{valueTreeState.getParameter("preset")};
-                jassert(dynamic_cast<AudioParameterInt*>(param) != nullptr);
-                AudioParameterInt* castParam{dynamic_cast<AudioParameterInt*>(param)};
-                *castParam = m.getProgramChangeNumber();
-            }
+            if (result == FLUID_OK) publishCurrentSelection();
         } else if (m.isPitchWheel()) {
             fluid_synth_pitch_bend(
                 synth.get(),
