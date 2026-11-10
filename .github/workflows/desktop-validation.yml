@@ -31,6 +31,9 @@ jobs:
       - name: Verify and package development build
         working-directory: src
         run: python3 scripts/package_desktop.py --arch x86_64 --build-dir "${{ runner.temp }}/fj"
+      - name: Verify exported sources without Git metadata
+        working-directory: src
+        run: python3 scripts/check_source_bundle.py "${{ runner.temp }}/fj/x86_64/distribution/corresponding-source.tar.gz"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: fluid-juicy-sf2-${{ matrix.os }}-x86_64-development

@@ -218,7 +218,21 @@ void FluidSynthModel::parameterChanged(const String& parameterID, float newValue
 }
 
 bool FluidSynthModel::loadSoundFont(const String& requestedPath, const MemoryBlock& bookmark) {
-    if (requestedPath.isEmpty() && bookmark.getSize() == 0) return true;
+    if (requestedPath.isEmpty() && bookmark.getSize() == 0) {
+        resetPlayback();
+        if (sfont_id >= 0) fluid_synth_sfunload(synth.get(), sfont_id, 0);
+        sfont_id = -1;
+#if JUCE_MAC || JUCE_IOS
+        // Keep the previous scope until the old font has been destroyed by the engine.
+        if (fileAccess) retiredFileAccess.push_back(std::move(fileAccess));
+#endif
+        refreshBanks();
+        auto emptyState = valueTreeState.state.getChildWithName("soundFont");
+        emptyState.setProperty("path", "", nullptr);
+        emptyState.setProperty("bookmark", var(MemoryBlock()), nullptr);
+        emptyState.setProperty("loadError", "", nullptr);
+        return true;
+    }
     auto state = valueTreeState.state.getChildWithName("soundFont");
     String path = requestedPath;
     MemoryBlock committedBookmark = bookmark;
@@ -387,6 +401,7 @@ void FluidSynthModel::setSampleRate(float sampleRate) {
     if (sfont_id >= 0)
         if (auto* font = fluid_synth_get_sfont_by_id(synth.get(), sfont_id))
             path = String::fromUTF8(fluid_sfont_get_name(font));
+    const auto savedChannel = captureChannel();
     synth.reset();
 #if JUCE_MAC || JUCE_IOS
     retiredFileAccess.clear();
@@ -395,9 +410,55 @@ void FluidSynthModel::setSampleRate(float sampleRate) {
     sfont_id = -1;
     initialise();
     if (path.isNotEmpty()) replaceFont(path);
+    restoreChannel(savedChannel, false);
     for (const auto& entry : paramToController)
         parameterChanged(entry.first, 0.0f);
     if (sfont_id >= 0) parameterChanged("preset", 0.0f);
+}
+
+FluidSynthModel::ChannelSnapshot FluidSynthModel::captureChannel() {
+    ChannelSnapshot state;
+    for (int cc = 0; cc < 120; ++cc)
+        fluid_synth_get_cc(synth.get(), channel, cc, &state.controllers[static_cast<size_t>(cc)]);
+    for (int gen = 0; gen < GEN_LAST; ++gen)
+        state.generators[static_cast<size_t>(gen)] = fluid_synth_get_gen(synth.get(), channel, gen);
+    fluid_synth_get_pitch_bend(synth.get(), channel, &state.pitch);
+    fluid_synth_get_pitch_wheel_sens(synth.get(), channel, &state.pitchSensitivity);
+    return state;
+}
+
+void FluidSynthModel::restoreChannel(const ChannelSnapshot& state, bool releasePedals) {
+    // Restore ordinary controllers, never replay channel-mode commands or
+    // RPN/NRPN data-entry transactions in numeric CC order.
+    for (int cc = 0; cc < 120; ++cc) {
+        if (cc == 6 || cc == 38 || (cc >= 96 && cc <= 101)) continue;
+        const bool pedal = cc == 64 || cc == 66 || cc == 69;
+        fluid_synth_cc(synth.get(), channel, cc,
+            releasePedals && pedal ? 0 : state.controllers[static_cast<size_t>(cc)]);
+    }
+    for (int gen = 0; gen < GEN_LAST; ++gen)
+        fluid_synth_set_gen(synth.get(), channel, gen, state.generators[static_cast<size_t>(gen)]);
+    fluid_synth_pitch_wheel_sens(synth.get(), channel, state.pitchSensitivity);
+    fluid_synth_pitch_bend(synth.get(), channel, state.pitch);
+    // Leave data entry deselected. Complete tuning/SysEx and in-progress RPN
+    // transactions need the future channel-state model; do not invent them here.
+    fluid_synth_cc(synth.get(), channel, 101, 127);
+    fluid_synth_cc(synth.get(), channel, 100, 127);
+}
+
+void FluidSynthModel::resetPlayback() {
+    if (!synth) return;
+    const auto savedChannel = captureChannel();
+    fluid_synth_system_reset(synth.get());
+    // Voice-off ramps may feed the effects during the first render quantum.
+    // Finish that ramp (plus any cached fragment), then clear the effects again.
+    fluid_synth_process(synth.get(), 128, 0, nullptr, 0, nullptr);
+    fluid_synth_system_reset(synth.get());
+    restoreChannel(savedChannel, true);
+    if (sfont_id >= 0) parameterChanged("preset", 0.0f);
+    // Drain the bounded reset/mixer pipeline without exposing pre-reset audio.
+    // No allocation, bank I/O or synth reconstruction; output mixing is skipped.
+    fluid_synth_process(synth.get(), 256, 0, nullptr, 0, nullptr);
 }
 
 void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiMessages) {
@@ -405,9 +466,33 @@ void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiM
     const auto renderUntil = [&](int end) {
         const int count = end - rendered;
         if (count <= 0) return;
-        float* outputs[2] = { buffer.getWritePointer(0, rendered),
-            buffer.getNumChannels() > 1 ? buffer.getWritePointer(1, rendered) : nullptr };
-        fluid_synth_process(synth.get(), count, 0, nullptr, buffer.getNumChannels(), outputs);
+        if (sfont_id < 0) {
+            // Empty projects are silent, including any residual effect output.
+            // Advance the engine so stale buffers cannot return on a later load.
+            fluid_synth_process(synth.get(), count, 0, nullptr, 0, nullptr);
+            rendered = end;
+            return;
+        }
+        if (buffer.getNumChannels() == 1) {
+            // FluidSynth requires stereo pairs. A fixed scratch block avoids
+            // allocations for mono hosts, including oversized host blocks.
+            float left[64], right[64];
+            for (int offset = 0; offset < count; offset += 64) {
+                const int length = juce::jmin(64, count - offset);
+                std::fill_n(left, length, 0.0f);
+                std::fill_n(right, length, 0.0f);
+                float* pair[] = {left, right};
+                // Aliasing wet and dry buffers is supported by FluidSynth;
+                // the effects channels wrap into this single stereo pair.
+                fluid_synth_process(synth.get(), length, 2, pair, 2, pair);
+                auto* mono = buffer.getWritePointer(0, rendered + offset);
+                for (int i = 0; i < length; ++i) mono[i] += 0.5f * (left[i] + right[i]);
+            }
+        } else {
+            float* outputs[] = {buffer.getWritePointer(0, rendered),
+                                buffer.getWritePointer(1, rendered)};
+            fluid_synth_process(synth.get(), count, 2, outputs, 2, outputs);
+        }
         rendered = end;
     };
     for (const auto metadata : midiMessages) {

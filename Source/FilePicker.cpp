@@ -98,11 +98,9 @@ void FilePicker::valueTreePropertyChanged(ValueTree& treeWhosePropertyHasChanged
 void FilePicker::handleAsyncUpdate() {
     const auto state = valueTreeState.state.getChildWithName("soundFont");
     const String path = state.getProperty("path", "");
-    if (path.isNotEmpty()) {
-        // Revert a rejected selection even if it is still the last committed path.
-        fileChooser.setCurrentFile(File(path), true, dontSendNotification);
-        currentPath = path;
-    }
+    // Empty project state also clears the previous displayed bank.
+    fileChooser.setCurrentFile(path.isEmpty() ? File() : File(path), true, dontSendNotification);
+    currentPath = path;
     const String error = state.getProperty("loadError", "");
     fileChooser.setTooltip(error.isEmpty() ? "Choose an SF2 or SF3 SoundFont" : error);
     if (error.isNotEmpty() && error != displayedError)

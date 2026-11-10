@@ -4,7 +4,7 @@
 | --- | --- |
 | `Source/` | Plug-in, interface, MIDI and FluidSynth integration |
 | `resources/` | Current application icon |
-| `scripts/` | Pinned dependency build and macOS packaging |
+| `scripts/` | Pinned dependency builds, desktop packaging and exported-source verification |
 | `cmake/` | Helpers used by the modern build |
 | `tests/` | Processor regressions and original test SoundFont generator |
 | `.github/workflows/` | Native Apple Silicon, Intel macOS and Windows x64 validation |

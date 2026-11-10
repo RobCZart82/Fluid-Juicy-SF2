@@ -13,6 +13,7 @@
 #include "MidiConstants.h"
 #include "Util.h"
 #include "GuiConstants.h"
+#include <limits>
 
 using namespace std;
 
@@ -100,7 +101,10 @@ bool JuicySFAudioProcessor::producesMidi() const
 
 double JuicySFAudioProcessor::getTailLengthSeconds() const
 {
-    return 0.0;
+    // Bank envelopes and effects cannot be bounded by a short fixed constant.
+    // JUCE's VST3 wrapper maps infinity to kInfiniteTail. Hosts may require an
+    // explicit offline-render end/tail length rather than automatic detection.
+    return std::numeric_limits<double>::infinity();
 }
 
 int JuicySFAudioProcessor::getNumPrograms()
@@ -144,7 +148,13 @@ void JuicySFAudioProcessor::releaseResources()
 {
     // When playback stops, you can use this as an opportunity to free up any
     // spare memory, etc.
+    reset();
+}
+
+void JuicySFAudioProcessor::reset()
+{
     keyboardState.reset();
+    fluidSynthModel.resetPlayback();
 }
 
 bool JuicySFAudioProcessor::isBusesLayoutSupported (const BusesLayout& layouts) const

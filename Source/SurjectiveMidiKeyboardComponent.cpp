@@ -885,9 +885,8 @@ void SurjectiveMidiKeyboardComponent::mouseWheelMove (const MouseEvent&, const M
 
 void SurjectiveMidiKeyboardComponent::timerCallback()
 {
-    if (shouldCheckState)
+    if (shouldCheckState.exchange(false, std::memory_order_relaxed))
     {
-        shouldCheckState = false;
 
         for (int i = rangeStart; i <= rangeEnd; ++i)
         {

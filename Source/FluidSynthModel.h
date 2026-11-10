@@ -9,6 +9,7 @@
 #include <memory>
 #include <map>
 #include <vector>
+#include <array>
 #include "MidiConstants.h"
 #include "MacFileAccess.h"
 
@@ -32,6 +33,7 @@ public:
 
 
     void setSampleRate(float sampleRate);
+    void resetPlayback();
 
     //==============================================================================
     virtual void parameterChanged (const String& parameterID, float newValue) override;
@@ -76,6 +78,14 @@ private:
 
     float currentSampleRate;
 
+    struct ChannelSnapshot {
+        std::array<int, 120> controllers{};
+        std::array<float, GEN_LAST> generators{};
+        int pitch = 8192;
+        int pitchSensitivity = 2;
+    };
+    ChannelSnapshot captureChannel();
+    void restoreChannel(const ChannelSnapshot&, bool releasePedals);
     bool replaceFont(const String& path);
 
     int sfont_id;
