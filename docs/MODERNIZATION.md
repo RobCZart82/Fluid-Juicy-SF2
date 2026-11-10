@@ -1,5 +1,7 @@
 # Modernization status
 
+Current audit and implementation status: [bug ledger](BUG_LEDGER.md) · [2026-11-10 audit](AUDIT-2026-11-10.md).
+
 Date: 2026-11-09. Upstream baseline: `c95eb5755aab634a22dfa778912facd136590d5c`.
 
 ## Intent

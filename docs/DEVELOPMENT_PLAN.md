@@ -1,5 +1,7 @@
 # Development gates
 
+Current audit and implementation status: [bug ledger](BUG_LEDGER.md) · [2026-11-10 audit](AUDIT-2026-11-10.md).
+
 1. **Desktop preview packages:** VST3/standalone and corresponding pinned source
    for macOS arm64, macOS Intel and Windows x64; architecture checks and checksums.
    Validate each platform's actual CI package before calling it available.
@@ -26,8 +28,8 @@ manual file selection and drag-and-drop available from any accessible location.
 On macOS, automatically check both standard bank folders for `.sf2` and `.sf3`
 files (case-insensitive extensions):
 
-- `~/Library/Audio/Sounds/Banks/` — current user's banks.
-- `/Library/Audio/Sounds/Banks/` — banks shared by all users.
+- `~/Library/Audio/Sounds/Banks/` â€” current user's banks.
+- `/Library/Audio/Sounds/Banks/` â€” banks shared by all users.
 
 These are bank folders, separate from the VST3 plug-in installation folders.
 Apple documents these locations for its DLSMusicDevice in the
