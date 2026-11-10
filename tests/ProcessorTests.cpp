@@ -1,6 +1,8 @@
 #include "../Source/PluginProcessor.h"
 #include <cmath>
 #include <iostream>
+#include <thread>
+#include <functional>
 
 int main(int argc, char** argv) {
     juce::ScopedJuceInitialiser_GUI initialise;
@@ -11,6 +13,10 @@ int main(int argc, char** argv) {
     };
     JuicySFAudioProcessor processor;
     processor.prepareToPlay(44100.0, 2048);
+    std::unique_ptr<AudioProcessorEditor> editor{processor.createEditor()};
+    editor->keyPressed(KeyPress(KeyPress::leftKey));
+    editor->keyPressed(KeyPress(KeyPress::rightKey));
+    check(processor.getCurrentProgram() == 0, "empty-bank navigation is safe before loading");
     processor.setStateInformation(nullptr, 0);
     const char invalid[] = "this is not a JUCE state";
     processor.setStateInformation(invalid, sizeof(invalid));
@@ -52,6 +58,31 @@ int main(int argc, char** argv) {
     check(before < 1.0e-12, "no audio before the scheduled note-on");
     check(after > 1.0e-8, "SoundFont loads and renders after note-on");
     check(midi.isEmpty(), "instrument does not forward consumed MIDI");
+    // A real MIDI render on a worker must not synchronously mutate the open UI.
+    std::function<TableListBox*(Component&)> findTable = [&](Component& component) -> TableListBox* {
+        if (auto* result = dynamic_cast<TableListBox*>(&component)) return result;
+        for (int i = 0; i < component.getNumChildComponents(); ++i)
+            if (auto* result = findTable(*component.getChildComponent(i))) return result;
+        return nullptr;
+    };
+    auto* table = findTable(*editor);
+    check(table != nullptr && table->getNumRows() == 2, "editor lists both original fixture presets");
+    if (table != nullptr) {
+        const int beforeSelection = table->getSelectedRow();
+        std::thread render([&] {
+            MidiBuffer events;
+            events.addEvent(MidiMessage::programChange(1, 1), 0);
+            events.addEvent(MidiMessage::controllerEvent(1, 74, 12), 0);
+            AudioBuffer<float> block(2, 256);
+            processor.processBlock(block, events);
+        });
+        render.join();
+        check(processor.getCurrentProgram() == 1, "worker MIDI updates the processor program");
+        check(table->getSelectedRow() == beforeSelection, "worker MIDI leaves the editor untouched until message-thread refresh");
+        juce::Thread::sleep(80);
+        juce::Timer::callPendingTimersSynchronously();
+        check(table->getSelectedRow() == 1, "message-thread timer reflects the new program");
+    }
     // The same loaded font must survive host sample-rate changes. Counting
     // crossings catches a synth silently left at 44100 Hz in a 48/96 kHz host.
     for (const double rate : {48000.0, 96000.0, 44100.0}) {

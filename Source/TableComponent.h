@@ -35,7 +35,7 @@ private:
 class TableComponent    : public Component,
                           public TableListBoxModel,
                           public ValueTree::Listener,
-                          public AudioProcessorValueTreeState::Listener {
+                          private juce::Timer {
 public:
     TableComponent(
             AudioProcessorValueTreeState& valueTreeState
@@ -70,7 +70,7 @@ public:
 
     bool keyPressed(const KeyPress &key) override;
 
-    virtual void parameterChanged (const String& parameterID, float newValue) override;
+
 
     virtual void valueTreePropertyChanged (ValueTree& treeWhosePropertyHasChanged,
                                            const Identifier& property) override;
@@ -84,6 +84,9 @@ public:
     inline virtual void valueTreeParentChanged (ValueTree& treeWhoseParentHasChanged) override {};
     inline virtual void valueTreeRedirected (ValueTree& treeWhichHasBeenChanged) override {};
 private:
+    void timerCallback() override;
+    int displayedBank = -1;
+    int displayedPreset = -1;
     void loadModelFrom(ValueTree& banks);
     void repopulateTable();
     void selectCurrentPreset();
