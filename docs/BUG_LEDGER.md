@@ -8,8 +8,8 @@ validation separately; CI is not manual REAPER acceptance.
 | --- | --- | --- | --- | --- |
 | F01 | P1 | Empty-bank left/right navigation divides by zero | Implemented in this branch | Passed at `4da9ca7` on macOS arm64/Intel and Windows x64; see evidence below |
 | F02 | P1 | Parameter callbacks directly mutate GUI; host program change takes message lock | Implemented for parameter-driven updates; loading callbacks remain F05 | Passed at `4da9ca7` on all three CI targets; manual REAPER acceptance open |
-| F03 | P2 | MIDI Program Change can undo preceding Bank Select | Implemented in bank/program recovery branch | Two-bank 440/880 Hz, same-PC and recall regressions added; CI pending |
-| F04 | P2 | Failed replacement discards working bank | Implemented in bank/program recovery branch | Missing/corrupt files, failed recall and successful replacement regressions added; CI pending |
+| F03 | P2 | MIDI Program Change can undo preceding Bank Select | Implemented in bank/program recovery branch | Two-bank 440/880 Hz, same-PC and recall regressions passed at `3741a6a` |
+| F04 | P2 | Failed replacement discards working bank | Implemented in bank/program recovery branch | Missing/corrupt files, failed recall and successful replacement regressions passed at `3741a6a` |
 | F05 | P2 | Loading is synchronous and shared engine state is not handed over safely | Open | Loader design and real-time stress tests required |
 | F06 | P2 | Host is told the instrument has no release/effect tail | Open | Tail-render test and reporting policy required |
 | F07 | P2 | Packages do not bind plugin source revision to binary build | Open | Stale-build/source mismatch regressions needed |
@@ -93,4 +93,6 @@ Base: merged PR #6, `48062aa1730eac9716db8019859df19641f1c8d5`.
   recall, failed replacement recovery and commit of a successful replacement.
 
 Loading remains synchronous. F05-F09 and manual REAPER acceptance remain open.
-Three-platform CI for this batch is pending.
+At `3741a6a9ff5bd184482bcc5a18f6fa0ede27eb07`, builds, regressions and
+package verification passed on [Apple Silicon](https://github.com/RobCZart82/Fluid-Juicy-SF2/actions/runs/42770114929)
+and [macOS Intel / Windows x64](https://github.com/RobCZart82/Fluid-Juicy-SF2/actions/runs/42770114899).
