@@ -2,6 +2,8 @@
 
 #include "JuceHeader.h"
 #include <functional>
+#include "MacFileAccess.h"
+#include <vector>
 
 class SoundFontLibrary final : private juce::Thread, private juce::AsyncUpdater
 {
@@ -9,6 +11,11 @@ public:
     struct Result {
         juce::Array<juce::File> files;
         bool limitReached = false;
+        juce::Array<juce::File> savedFolders;
+        juce::String error;
+#if JUCE_MAC || JUCE_IOS
+        std::vector<std::shared_ptr<JuicyMac::ScopedFileAccess>> access;
+#endif
     };
 
     SoundFontLibrary();

@@ -2,6 +2,7 @@ target_sources(JuicySFPlugin
     PRIVATE
         FilePicker.cpp
         SoundFontLibrary.cpp
+        SoundFontFolders.cpp
         FluidSynthModel.cpp
         MyColours.cpp
         Pills.cpp

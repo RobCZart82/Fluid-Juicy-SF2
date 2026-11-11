@@ -13,3 +13,10 @@ reference may reveal folder names or your local account name.
 
 This notice covers Fluid Juicy SF2 itself. Your DAW, operating system and
 any services you use to store or share projects have their own policies.
+
+
+When you use Add folder in the Banks menu, Fluid Juicy SF2 stores that
+folder's local path in your user application-data settings. On macOS it also
+stores a file-access bookmark. Remove folder removes the saved reference.
+Folder discovery reads filenames locally when you open or refresh the menu.
+These library preferences are separate from the state saved in a DAW project.

@@ -1,5 +1,6 @@
 #include "SoundFontLibrary.h"
 #include <algorithm>
+#include "SoundFontFolders.h"
 
 SoundFontLibrary::SoundFontLibrary() : Thread("SoundFont library scan") {}
 SoundFontLibrary::~SoundFontLibrary() { cancel(); }
@@ -51,7 +52,10 @@ void SoundFontLibrary::scan(std::function<void(Result)> callback)
 {
     cancel();
     onComplete = std::move(callback);
-    startThread();
+    if (!startThread()) {
+        result.error = "Could not start the SoundFont folder scan.";
+        triggerAsyncUpdate();
+    }
 }
 
 void SoundFontLibrary::cancel()
@@ -60,11 +64,44 @@ void SoundFontLibrary::cancel()
     stopThread(-1);
     cancelPendingUpdate();
     onComplete = {};
+    const juce::ScopedLock lock(resultLock);
+    result = {};
 }
 
 void SoundFontLibrary::run()
 {
-    auto found = scanFolders(defaultFolders(), [this] { return threadShouldExit(); });
+    auto folders = defaultFolders();
+    const auto saved = SoundFontFolders().read();
+    Result savedState;
+    savedState.error = saved.error;
+    for (const auto& folder : saved.folders) {
+        savedState.savedFolders.add(folder.path);
+        auto path = folder.path;
+#if JUCE_MAC || JUCE_IOS
+        if (folder.bookmark.getSize() > 0) {
+            JuicyMac::CFPtr<CFDataRef> data{CFDataCreate(nullptr,
+                static_cast<const UInt8*>(folder.bookmark.getData()), static_cast<CFIndex>(folder.bookmark.getSize()))};
+            CFErrorRef error = nullptr;
+            Boolean stale = false;
+            auto url = data ? CFURLCreateByResolvingBookmarkData(nullptr, data.get(),
+                kCFURLBookmarkResolutionWithSecurityScope, nullptr, nullptr, &stale, &error) : nullptr;
+            JuicyMac::CFPtr<CFErrorRef> ownedError{error};
+            auto access = std::make_shared<JuicyMac::ScopedFileAccess>(url);
+            if (access->url) {
+                JuicyMac::CFPtr<CFStringRef> resolved{CFURLCopyFileSystemPath(access->url.get(), kCFURLPOSIXPathStyle)};
+                if (resolved) path = juce::File(juce::String::fromCFString(resolved.get()));
+                savedState.access.push_back(std::move(access));
+            } else savedState.error = "Some folder permissions need to be renewed with Add folder.";
+        }
+#endif
+        folders.addIfNotAlreadyThere(path);
+    }
+    auto found = scanFolders(folders, [this] { return threadShouldExit(); });
+    found.savedFolders = std::move(savedState.savedFolders);
+    found.error = std::move(savedState.error);
+#if JUCE_MAC || JUCE_IOS
+    found.access = std::move(savedState.access);
+#endif
     if (threadShouldExit()) return;
     {
         const juce::ScopedLock lock(resultLock);

@@ -48,6 +48,8 @@ private:
     TextButton libraryButton{"Banks"};
     SoundFontLibrary library;
     void showLibrary();
+    void addLibraryFolder();
+    std::unique_ptr<juce::FileChooser> folderChooser;
     FluidSynthModel& fluidSynthModel;
     String displayedError;
 
@@ -55,10 +57,6 @@ private:
     // FluidSynthModel& fluidSynthModel;
 
     String currentPath;
-
-#if JUCE_MAC || JUCE_IOS
-    CFURLBookmarkCreationOptions bookmarkCreationOptions;
-#endif
 
     void filenameComponentChanged (FilenameComponent*) override;
 
