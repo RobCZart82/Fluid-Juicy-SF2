@@ -6,6 +6,7 @@
 
 #include "JuceHeader.h"
 #include "FluidSynthModel.h"
+#include "SoundFontLibrary.h"
 
 #if JUCE_MAC || JUCE_IOS
 //   #include <CoreFoundation/CoreFoundation.h>
@@ -44,6 +45,9 @@ public:
 private:
     void handleAsyncUpdate() override;
     FilenameComponent fileChooser;
+    TextButton libraryButton{"Banks"};
+    SoundFontLibrary library;
+    void showLibrary();
     FluidSynthModel& fluidSynthModel;
     String displayedError;
 

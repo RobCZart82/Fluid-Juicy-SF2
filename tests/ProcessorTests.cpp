@@ -4,6 +4,7 @@
 #include <thread>
 #include <functional>
 #include "LoaderTests.h"
+#include "../Source/SoundFontLibrary.h"
 
 int main(int argc, char** argv) {
     juce::ScopedJuceInitialiser_GUI initialise;
@@ -13,6 +14,31 @@ int main(int argc, char** argv) {
         if (!ok) ++failures;
     };
     JuicySFAudioProcessor processor;
+    {
+        const auto folder = File::getSpecialLocation(File::tempDirectory)
+            .getNonexistentChildFile("fluid-juicy-library-test", "", false);
+        check(folder.createDirectory().wasOk(), "library fixture directory created");
+        const auto sf2 = folder.getChildFile("Piano.SF2");
+        const auto sf3 = folder.getChildFile("Piano.sF3");
+        check(sf2.replaceWithText("discovery only") && sf3.replaceWithText("discovery only")
+                  && folder.getChildFile("Other.sfz").replaceWithText("unsupported")
+                  && folder.getChildFile("nested").createDirectory().wasOk()
+                  && folder.getChildFile("nested/Hidden.sf2").replaceWithText("nested"),
+              "library fixture files created");
+        const auto found = SoundFontLibrary::scanFolders(
+            {folder, folder, folder.getChildFile("missing")}, [] { return false; });
+        check(found.files.size() == 2 && found.files.contains(sf2) && found.files.contains(sf3),
+              "library discovers case-insensitive SF2/SF3 once without recursing or accepting SFZ");
+        check(SoundFontLibrary::scanFolders({folder}, [] { return true; }).files.isEmpty(),
+              "cancelled library scan returns without enumerating files");
+        bool created = true;
+        for (int i = 0; i < 256; ++i)
+            created = folder.getChildFile("Bank" + String(i) + ".sf2").replaceWithText("discovery only") && created;
+        const auto bounded = SoundFontLibrary::scanFolders({folder}, [] { return false; });
+        check(created && bounded.limitReached && bounded.files.size() == 256,
+              "library limits oversized results instead of building an unbounded menu");
+        check(folder.deleteRecursively(), "library fixture directory removed");
+    }
     processor.prepareToPlay(44100.0, 2048);
     std::unique_ptr<AudioProcessorEditor> editor{processor.createEditor()};
     check(editor->getWidth() == 575 && editor->getHeight() == 345,

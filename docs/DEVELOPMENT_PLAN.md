@@ -18,9 +18,9 @@ Current audit and implementation status: [bug ledger](BUG_LEDGER.md) · [2026-11
 CI success covers its automated checks, not every DAW or SoundFont. No stable
 release is implied by this plan. Original plugin IDs/state remain preserved.
 
-## Planned SoundFont drop folders
+## SoundFont drop folders
 
-The first version will discover `.sf2` and `.sf3` files, with case-insensitive
+The first chooser implementation discovers `.sf2` and `.sf3` files, with case-insensitive
 extensions. The plugin and installer will ship without SoundFont banks.
 
 | Scope | Windows 10 and 11 | macOS |
@@ -60,3 +60,26 @@ not interrupt audio playback.
 Document where to copy files, how to open and refresh the chooser, and how to
 relocate a missing bank. Explain that SoundFonts stay external to projects.
 Publish the user instructions when the feature is available.
+
+
+### First implementation and remaining gates
+
+The Banks button next to the file picker scans the two default folders on a
+background worker whenever it opens. Refresh rescans them. Selecting an entry
+uses the existing background SoundFont loader and failed-load recovery.
+The menu includes each file's parent path to distinguish duplicate filenames.
+An unopened library never changes the saved bank or triggers a scan on recall.
+
+The first version scans only the immediate files in the default folders. It
+skips symbolic links and inaccessible files, accepts case-insensitive SF2/SF3
+extensions, and stops at 10,000 directory entries or 256 results. It reports
+a reached limit and leaves Browse available for other banks. It creates no
+folders and bundles no banks. Editor destruction requests cancellation and
+joins the scanner before releasing its callback. A filesystem operation already
+in progress may delay that join.
+
+Custom-folder persistence and macOS security-scoped directory grants are still
+future work. In a sandboxed macOS standalone app, default folders may require
+user permission. Browse remains the way to choose a file when folder access is
+unavailable. Native Apple Silicon/Intel, sandbox permission, large-bank and
+manual REAPER acceptance remain separate from the automated discovery tests.

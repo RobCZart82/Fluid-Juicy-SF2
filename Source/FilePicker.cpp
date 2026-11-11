@@ -41,6 +41,9 @@ FilePicker::FilePicker(
     setDisplayedFilePath(valueTreeState.state.getChildWithName("soundFont").getProperty("path", ""));
 
     addAndMakeVisible (fileChooser);
+    addAndMakeVisible(libraryButton);
+    libraryButton.setTooltip("Find SF2/SF3 files in the user and shared SoundFont folders");
+    libraryButton.onClick = [this] { showLibrary(); };
     fileChooser.addListener (this);
     valueTreeState.state.addListener(this);
     triggerAsyncUpdate();
@@ -51,6 +54,7 @@ FilePicker::FilePicker(
 #endif
 }
 FilePicker::~FilePicker() {
+    library.cancel();
     cancelPendingUpdate();
     fileChooser.removeListener (this);
     valueTreeState.state.removeListener(this);
@@ -58,7 +62,40 @@ FilePicker::~FilePicker() {
 
 void FilePicker::resized() {
     Rectangle<int> r (getLocalBounds());
+    libraryButton.setBounds(r.removeFromRight(60));
+    r.removeFromRight(4);
     fileChooser.setBounds (r);
+}
+
+void FilePicker::showLibrary() {
+    libraryButton.setEnabled(false);
+    libraryButton.setButtonText("Scanning");
+    library.scan([this](SoundFontLibrary::Result result) {
+        libraryButton.setEnabled(true);
+        libraryButton.setButtonText("Banks");
+        juce::PopupMenu menu;
+        if (result.files.isEmpty()) menu.addItem("No SF2/SF3 files found", false, false, nullptr);
+        int id = 1;
+        for (const auto& file : result.files)
+            menu.addItem(id++, file.getFileName() + " - " + file.getParentDirectory().getFullPathName());
+        if (result.limitReached) menu.addItem("Scan limit reached; use Browse for other files", false, false, nullptr);
+        menu.addSeparator();
+        menu.addItem(1001, "Refresh");
+        const auto folders = SoundFontLibrary::defaultFolders();
+        menu.addSectionHeader("SoundFont folders");
+        for (const auto& folder : folders)
+            menu.addItem(folder.getFullPathName(), false, false, nullptr);
+        juce::Component::SafePointer<FilePicker> safeThis(this);
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&libraryButton),
+            [safeThis, files = std::move(result.files)](int choice) {
+                if (!safeThis) return;
+                if (choice == 1001) safeThis->showLibrary();
+                else if (choice > 0 && choice <= files.size()) {
+                    safeThis->fileChooser.setCurrentFile(files[choice - 1], true, dontSendNotification);
+                    safeThis->filenameComponentChanged(nullptr);
+                }
+            });
+    });
 }
 
 /**
