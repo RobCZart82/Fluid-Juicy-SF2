@@ -2,6 +2,7 @@
 """Package verified desktop builds and their pinned corresponding sources."""
 import argparse
 import copy
+from contextlib import contextmanager
 import hashlib
 import json
 import io
@@ -31,6 +32,22 @@ def verify_pe(path):
     return {'architecture': 'x86_64', 'format': 'PE32+'}
 
 
+@contextmanager
+def git_source_archive(repository, revision):
+    # tar readers stop at end-of-archive markers, before git necessarily finishes
+    # writing padding. Closing a live stdout pipe can fail git on Windows.
+    # Spool to disk and wait for git first: bounded memory, no pipe-close race.
+    with tempfile.TemporaryFile() as stream:
+        result = subprocess.run(['git', '-C', str(repository), 'archive', revision],
+                                stdout=stream, stderr=subprocess.PIPE)
+        if result.returncode:
+            detail = result.stderr.decode('utf-8', errors='replace').strip()
+            raise RuntimeError(f'Source archive failed: {repository} (exit {result.returncode}): {detail}')
+        stream.seek(0)
+        with tarfile.open(fileobj=stream, mode='r:') as archive:
+            yield archive
+
+
 def archive_sources(target, sources, source_commit):
     repositories = [('fluid-juicy-sf2', ROOT, source_commit)]
     for name, (_, expected) in PINS.items():
@@ -55,23 +72,16 @@ def archive_sources(target, sources, source_commit):
         for prefix, repository, revision in repositories:
             files = {}
             manifest['repositories'][prefix] = {'revision': revision, 'files': files}
-            process = subprocess.Popen(['git', '-C', str(repository), 'archive', revision], stdout=subprocess.PIPE)
-            try:
-                with tarfile.open(fileobj=process.stdout, mode='r|') as archive:
-                    for entry in archive:
-                        member = copy.copy(entry)
-                        member.name = prefix + '/' + entry.name
-                        data = archive.extractfile(entry).read() if entry.isfile() else None
-                        if data is not None:
-                            files[entry.name] = {'sha256': hashlib.sha256(data).hexdigest()}
-                        elif entry.issym():
-                            files[entry.name] = {'symlink': entry.linkname}
-                        destination.addfile(member, io.BytesIO(data) if data is not None else None)
-            finally:
-                process.stdout.close()
-                code = process.wait()
-            if code:
-                raise RuntimeError(f'Source archive failed: {repository}')
+            with git_source_archive(repository, revision) as archive:
+                for entry in archive:
+                    member = copy.copy(entry)
+                    member.name = prefix + '/' + entry.name
+                    data = archive.extractfile(entry).read() if entry.isfile() else None
+                    if data is not None:
+                        files[entry.name] = {'sha256': hashlib.sha256(data).hexdigest()}
+                    elif entry.issym():
+                        files[entry.name] = {'symlink': entry.linkname}
+                    destination.addfile(member, io.BytesIO(data) if data is not None else None)
         data = json.dumps(manifest, indent=2).encode('utf-8')
         member = tarfile.TarInfo('source-manifest.json')
         member.size = len(data)

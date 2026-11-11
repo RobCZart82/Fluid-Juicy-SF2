@@ -74,6 +74,8 @@ if(JUICY_BUILD_TESTS)
     set_tests_properties(processor-regressions PROPERTIES TIMEOUT 30)
     add_test(NAME exported-source-regressions COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_SOURCE_DIR}/tests/BuildSourceTests.py")
+    add_test(NAME source-packaging-regressions COMMAND "${Python3_EXECUTABLE}"
+        "${CMAKE_SOURCE_DIR}/tests/PackageSourceTests.py")
     add_test(NAME archive-extraction-regressions COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_SOURCE_DIR}/tests/ArchiveTests.py")
 endif()
