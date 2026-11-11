@@ -26,7 +26,9 @@ bool isLibraryLink(const juce::File& file)
 }
 }
 
-SoundFontLibrary::SoundFontLibrary() : Thread("SoundFont library scan") {}
+SoundFontLibrary::SoundFontLibrary(juce::File settings)
+    : Thread("SoundFont library scan"),
+      settingsFile(settings == juce::File() ? SoundFontFolders::defaultSettingsFile() : settings) {}
 SoundFontLibrary::~SoundFontLibrary() { cancel(); }
 
 juce::Array<juce::File> SoundFontLibrary::defaultFolders()
@@ -72,10 +74,11 @@ SoundFontLibrary::Result SoundFontLibrary::scanFolders(
     return found;
 }
 
-void SoundFontLibrary::scan(std::function<void(Result)> callback)
+void SoundFontLibrary::scan(std::function<void(Result)> callback, Edit edit)
 {
     cancel();
     onComplete = std::move(callback);
+    pendingEdit = std::move(edit);
     if (!startThread()) {
         result.error = "Could not start the SoundFont folder scan.";
         triggerAsyncUpdate();
@@ -88,6 +91,7 @@ void SoundFontLibrary::cancel()
     stopThread(-1);
     cancelPendingUpdate();
     onComplete = {};
+    pendingEdit = {};
     const juce::ScopedLock lock(resultLock);
     result = {};
 }
@@ -95,9 +99,16 @@ void SoundFontLibrary::cancel()
 void SoundFontLibrary::run()
 {
     auto folders = defaultFolders();
-    const auto saved = SoundFontFolders().read();
+    const std::function<bool()> cancelled = [this] { return threadShouldExit(); };
     Result savedState;
-    savedState.error = saved.error;
+    if (pendingEdit) {
+        const auto edited = pendingEdit(cancelled);
+        if (edited.failed()) savedState.error = edited.getErrorMessage();
+    }
+    if (threadShouldExit()) return;
+    const auto saved = SoundFontFolders(settingsFile).read(cancelled);
+    if (saved.error.isNotEmpty()) savedState.error = saved.error;
+    if (threadShouldExit()) return;
     for (const auto& folder : saved.folders) {
         savedState.savedFolders.add(folder.path);
         auto path = folder.path;

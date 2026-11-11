@@ -59,9 +59,11 @@ private:
     struct Preset { int bank, program; String name; };
     struct Metadata { vector<Preset> presets; };
     struct Engine {
-        explicit Engine(FluidSynthModel* model) : owner(model) {}
+        explicit Engine(FluidSynthModel* model) : owner(model) { ++owner->liveEngines; }
         ~Engine();
         FluidSynthModel* owner;
+        Engine* retiredNext = nullptr;
+        bool crossfade = true;
 #if JUCE_MAC || JUCE_IOS
         // Access outlives synth/sample destruction, including a retired engine.
         unique_ptr<JuicyMac::ScopedFileAccess> access;
@@ -78,7 +80,7 @@ private:
         String path;
         MemoryBlock bookmark;
     };
-    struct Request { String path; MemoryBlock bookmark; uint64_t id; };
+    struct Request { String path; MemoryBlock bookmark; uint64_t id; bool crossfade = true; };
     struct ChannelSnapshot {
         array<int, 120> controllers{};
         array<float, GEN_LAST> generators{};
@@ -91,6 +93,7 @@ private:
     bool publish(unique_ptr<Engine>, const Request&);
     void loaderLoop();
     void reclaimRetired();
+    void retireEngine(Engine*);
     void adoptPending();
     void adoptWhileStopped();
     void applyControls(Engine&);
@@ -116,6 +119,10 @@ private:
     static_assert(atomic<uint64_t>::is_always_lock_free, "64-bit control state must be lock-free");
     atomic<Engine*> pending{nullptr};
     atomic<Engine*> retired{nullptr};
+    atomic<unsigned int> liveEngines{0};
+    mutex engineBudgetMutex;
+    condition_variable engineAvailable;
+    static constexpr unsigned int engineBudget = 4;
     atomic<float> targetRate{44100};
     atomic<unsigned int> selection{0};
     array<atomic<int>, 128> requestedControllers;

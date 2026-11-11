@@ -92,9 +92,30 @@ acceptance is recorded separately from manifest verification.
 ## Background loader follow-up
 
 GUI browse/drop now prepares an independent synth on a serial background worker.
-Ready engines are adopted at block boundaries with a 512-sample crossfade; old
+GUI-ready engines are adopted at block boundaries with a 512-sample crossfade; old
 engines and file-access scopes are reclaimed outside rendering. Host state
 restoration remains a synchronous non-real-time operation for offline readiness.
 UI models, program-name queries and persistence use separate snapshots rather
 than shared raw synth/font pointers. See [ownership, ordering and test limits](LOADER_ARCHITECTURE.md).
 The 64-sample MIDI timing limitation and full GM2/GS acceptance remain open.
+
+## Output level and recall compatibility
+
+Output is an appended, automatable parameter (-60 to +6 dB), with a 20 ms linear
+gain ramp. New instances start at -12 dB. State files from earlier previews which
+contain parameters but no outputGain field restore at 0 dB to retain their mix
+balance. Existing parameter IDs and indices remain unchanged.
+
+FluidSynth engine gain remains 2.0. The output control adds headroom after the
+stereo render; it is not a limiter or a guarantee against every bank/polyphony
+combination exceeding 0 dBFS. Monitor the host meter and lower Output as needed.
+The original audit's DSoundFontV4 eight-note piano chord exceeded unity by
+0.245 dB; the new default attenuates the same render by 12 dB.
+
+## Source archive extraction
+
+The verifier supports Python 3.9+ without relying on newer tar extraction
+filters. It rejects absolute/parent paths, duplicate files and special devices,
+writes regular files before links, and accepts only in-root links to regular
+files. Directory links and link chains are rejected. Legitimate FluidSynth
+Unicode filename aliases and executable mode bits are retained.

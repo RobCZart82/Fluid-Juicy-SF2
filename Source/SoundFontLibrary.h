@@ -18,9 +18,10 @@ public:
 #endif
     };
 
-    SoundFontLibrary();
+    using Edit = std::function<juce::Result(const std::function<bool()>&)>;
+    explicit SoundFontLibrary(juce::File settings = {});
     ~SoundFontLibrary() override;
-    void scan(std::function<void(Result)> callback);
+    void scan(std::function<void(Result)> callback, Edit edit = {});
     void cancel();
     static juce::Array<juce::File> defaultFolders();
     static Result scanFolders(const juce::Array<juce::File>&,
@@ -32,4 +33,6 @@ private:
     juce::CriticalSection resultLock;
     Result result;
     std::function<void(Result)> onComplete;
+    Edit pendingEdit;
+    juce::File settingsFile;
 };

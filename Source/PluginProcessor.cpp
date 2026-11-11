@@ -13,6 +13,7 @@
 #include "MidiConstants.h"
 #include "Util.h"
 #include "GuiConstants.h"
+#include "BookmarkCodec.h"
 #include <limits>
 
 using namespace std;
@@ -48,7 +49,7 @@ JuicySFAudioProcessor::JuicySFAudioProcessor()
 
 AudioProcessorValueTreeState::ParameterLayout JuicySFAudioProcessor::createParameterLayout() {
     // https://stackoverflow.com/a/8469002/5257399
-    unique_ptr<AudioParameterInt> params[] {
+    unique_ptr<RangedAudioParameter> params[] {
         // SoundFont 2.4 spec section 7.2: zero through 127, or 128.
         make_unique<AudioParameterInt>("bank", "which bank is selected in the soundfont", MidiConstants::midiMinValue, 128, MidiConstants::midiMinValue, "Bank" ),
         // note: banks may be sparse, and lack a 0th preset. so defend against this.
@@ -59,6 +60,9 @@ AudioProcessorValueTreeState::ParameterLayout JuicySFAudioProcessor::createParam
         make_unique<AudioParameterInt>("release", "volume envelope release time", MidiConstants::midiMinValue, MidiConstants::midiMaxValue, MidiConstants::midiMinValue, "R" ),
         make_unique<AudioParameterInt>("filterCutOff", "low-pass filter cut-off frequency", MidiConstants::midiMinValue, MidiConstants::midiMaxValue, MidiConstants::midiMinValue, "Cut" ),
         make_unique<AudioParameterInt>("filterResonance", "low-pass filter resonance attentuation", MidiConstants::midiMinValue, MidiConstants::midiMaxValue, MidiConstants::midiMinValue, "Res" ),
+        make_unique<juce::AudioParameterFloat>("outputGain", "Output level",
+            juce::NormalisableRange<float>(-60.0f, 6.0f, 0.1f), -12.0f,
+            juce::AudioParameterFloatAttributes().withLabel("dB")),
     };
 
     return {
@@ -140,7 +144,9 @@ void JuicySFAudioProcessor::prepareToPlay (double sampleRate, int /*samplesPerBl
     synth.setCurrentPlaybackSampleRate (sampleRate);
     keyboardState.reset();
     fluidSynthModel.setSampleRate(static_cast<float>(sampleRate));
-
+    outputLevel.reset(sampleRate, 0.02);
+    outputLevel.setCurrentAndTargetValue(juce::Decibels::decibelsToGain(
+        valueTreeState.getRawParameterValue("outputGain")->load()));
     reset();
 }
 
@@ -197,6 +203,13 @@ void JuicySFAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffer&
     keyboardState.processNextMidiBuffer(midiMessages, 0, buffer.getNumSamples(), true);
 
     fluidSynthModel.processBlock(buffer, midiMessages);
+    outputLevel.setTargetValue(juce::Decibels::decibelsToGain(
+        valueTreeState.getRawParameterValue("outputGain")->load()));
+    for (int frame = 0; frame < buffer.getNumSamples(); ++frame) {
+        const float gain = outputLevel.getNextValue();
+        for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
+            buffer.setSample(channel, frame, buffer.getSample(channel, frame) * gain);
+    }
 
     // and now get our synth to process these midi events and generate its output.
     // synth.renderNextBlock(buffer, midiMessages, 0, numSamples);
@@ -269,7 +282,8 @@ void JuicySFAudioProcessor::setStateInformation (const void* data, int sizeInByt
                 XmlElement* xmlElement{xmlState->getChildByName("soundFont")};
                 if (xmlElement) {
                     MemoryBlock bookmark;
-                    bookmark.fromBase64Encoding(xmlElement->getStringAttribute("bookmark"));
+                    if (!BookmarkCodec::decode(xmlElement->getStringAttribute("bookmark"), bookmark))
+                        return; // Reject the entire invalid state before changing bank, parameters or UI.
                     if (!fluidSynthModel.loadSoundFont(xmlElement->getStringAttribute("path"), bookmark)
                         && fluidSynthModel.hasLoadedSoundFont())
                         return; // A failed project-bank replacement must preserve the working parameters too.
@@ -284,7 +298,11 @@ void JuicySFAudioProcessor::setStateInformation (const void* data, int sizeInByt
             if (params) {
                 for (auto* param : getParameters()) {
                     if (auto* p = dynamic_cast<AudioProcessorParameterWithID*>(param)) {
-                        p->setValueNotifyingHost(static_cast<float>(params->getDoubleAttribute(p->paramID, p->getValue())));
+                        // Old previews had unity output with no outputGain field.
+                        // Preserve their balance while new instances start at -12 dB.
+                        const float fallback = p->paramID == "outputGain"
+                            ? valueTreeState.getParameter("outputGain")->convertTo0to1(0.0f) : p->getValue();
+                        p->setValueNotifyingHost(static_cast<float>(params->getDoubleAttribute(p->paramID, fallback)));
                     }
                 }
             }

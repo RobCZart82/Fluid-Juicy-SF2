@@ -4,10 +4,18 @@
 #include <thread>
 #include <functional>
 #include "LoaderTests.h"
+#include "ReviewFixTests.h"
 #include "../Source/SoundFontLibrary.h"
 #include "../Source/SoundFontFolders.h"
 
 int main(int argc, char** argv) {
+    if (argc == 3 && String(argv[1]) == "--hold-folder-lock") {
+        juce::InterProcessLock lock(argv[2]);
+        if (!lock.enter()) return 3;
+        std::cout << "READY" << std::flush;
+        juce::Thread::sleep(1500);
+        return 0;
+    }
     juce::ScopedJuceInitialiser_GUI initialise;
     int failures = 0;
     const auto check = [&](bool ok, const char* description) {
@@ -484,5 +492,6 @@ int main(int argc, char** argv) {
         }
     }
     failures += runLoaderTests(originalPath);
+    failures += runReviewFixTests(originalPath);
     return failures == 0 ? 0 : 1;
 }

@@ -47,7 +47,7 @@ private:
     FilenameComponent fileChooser;
     TextButton libraryButton{"Banks"};
     SoundFontLibrary library;
-    void showLibrary();
+    void showLibrary(SoundFontLibrary::Edit edit = {});
     void addLibraryFolder();
     std::unique_ptr<juce::FileChooser> folderChooser;
     FluidSynthModel& fluidSynthModel;

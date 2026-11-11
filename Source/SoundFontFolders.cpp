@@ -1,8 +1,30 @@
 #include "SoundFontFolders.h"
+#include "BookmarkCodec.h"
 
 namespace {
 // POSIX file locks coordinate processes, so also serialize instances in this host.
 juce::CriticalSection processSettingsLock;
+class SettingsGuard {
+public:
+    SettingsGuard(const juce::String& name, const SoundFontFolders::Cancelled& cancelled)
+        : interprocess(name) {
+        const auto deadline = juce::Time::getMillisecondCounterHiRes() + 250.0;
+        do {
+            if (cancelled && cancelled()) break;
+            if (!processHeld) processHeld = processSettingsLock.tryEnter();
+            if (processHeld && interprocess.enter(0)) { locked = true; return; }
+            juce::Thread::sleep(5);
+        } while (juce::Time::getMillisecondCounterHiRes() < deadline);
+    }
+    ~SettingsGuard() {
+        if (locked) interprocess.exit();
+        if (processHeld) processSettingsLock.exit();
+    }
+    bool isLocked() const { return locked; }
+private:
+    juce::InterProcessLock interprocess;
+    bool processHeld = false, locked = false;
+};
 }
 
 juce::File SoundFontFolders::defaultSettingsFile()
@@ -34,10 +56,9 @@ SoundFontFolders::Snapshot SoundFontFolders::readUnlocked() const
     for (auto* child : xml->getChildIterator()) {
         const auto path = child->getStringAttribute("path");
         const auto encoded = child->getStringAttribute("bookmark");
-        const auto bytes = encoded.upToFirstOccurrenceOf(".", false, false).getLargeIntValue();
         juce::MemoryBlock bookmark;
         if (!child->hasTagName("Folder") || !juce::File::isAbsolutePath(path)
-            || bytes < 0 || bytes > 16384 || !bookmark.fromBase64Encoding(encoded)
+            || !BookmarkCodec::decode(encoded, bookmark, 16384)
             || saved.folders.size() >= 16) {
             saved.error = "Invalid SoundFont folder settings: " + settingsFile.getFullPathName();
             saved.folders.clear();
@@ -48,30 +69,26 @@ SoundFontFolders::Snapshot SoundFontFolders::readUnlocked() const
     return saved;
 }
 
-SoundFontFolders::Snapshot SoundFontFolders::read() const
+SoundFontFolders::Snapshot SoundFontFolders::read(const Cancelled& cancelled) const
 {
-    const juce::ScopedLock processGuard(processSettingsLock);
-    juce::InterProcessLock lock(lockName);
-    const juce::InterProcessLock::ScopedLockType guard(lock);
-    if (!guard.isLocked()) return {{}, "Could not lock SoundFont folder settings."};
+    SettingsGuard guard(lockName, cancelled);
+    if (!guard.isLocked()) return {{}, "SoundFont folder settings are busy. Try again."};
     return readUnlocked();
 }
 
-juce::Result SoundFontFolders::add(const juce::File& path, const juce::MemoryBlock& bookmark)
+juce::Result SoundFontFolders::add(const juce::File& path, const juce::MemoryBlock& bookmark, const Cancelled& cancelled)
 {
     if (!path.isDirectory()) return juce::Result::fail("Choose an existing SoundFont folder.");
     if (bookmark.getSize() > 16384) return juce::Result::fail("The folder access bookmark is too large.");
-    return change({path, bookmark}, false);
+    return change({path, bookmark}, false, cancelled);
 }
 
-juce::Result SoundFontFolders::remove(const juce::File& path) { return change({path, {}}, true); }
+juce::Result SoundFontFolders::remove(const juce::File& path, const Cancelled& cancelled) { return change({path, {}}, true, cancelled); }
 
-juce::Result SoundFontFolders::change(const Folder& target, bool remove)
+juce::Result SoundFontFolders::change(const Folder& target, bool remove, const Cancelled& cancelled)
 {
-    const juce::ScopedLock processGuard(processSettingsLock);
-    juce::InterProcessLock lock(lockName);
-    const juce::InterProcessLock::ScopedLockType guard(lock);
-    if (!guard.isLocked()) return juce::Result::fail("Could not lock SoundFont folder settings.");
+    SettingsGuard guard(lockName, cancelled);
+    if (!guard.isLocked()) return juce::Result::fail("SoundFont folder settings are busy. Try again.");
     auto saved = readUnlocked();
     if (saved.error.isNotEmpty()) return juce::Result::fail(saved.error);
     for (int i = saved.folders.size(); --i >= 0;)
