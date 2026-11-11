@@ -90,6 +90,7 @@ private:
     void loadModelFrom(ValueTree& banks);
     void repopulateTable();
     void selectCurrentPreset();
+    void fitColumnsToViewport();
 
     AudioProcessorValueTreeState& valueTreeState;
 

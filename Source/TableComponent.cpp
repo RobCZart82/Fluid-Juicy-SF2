@@ -36,6 +36,7 @@ TableComponent::TableComponent(
 
     // give it a border
     table.setOutlineThickness (1);
+    table.getViewport()->setScrollBarsShown(true, false);
 
     int columnIx = 1;
 
@@ -96,6 +97,7 @@ void TableComponent::timerCallback() {
     const auto preset = static_cast<int>(valueTreeState.getRawParameterValue("preset")->load());
     if (bank != displayedBank) repopulateTable();
     else if (preset != displayedPreset) selectCurrentPreset();
+    fitColumnsToViewport();
 }
 
 void TableComponent::repopulateTable() {
@@ -124,6 +126,7 @@ void TableComponent::repopulateTable() {
     sort(rows.begin(), rows.end(), sorter);
     table.deselectAllRows();
     table.updateContent();
+    fitColumnsToViewport();
     selectCurrentPreset();
     table.repaint();
 }
@@ -249,6 +252,16 @@ int TableComponent::getColumnAutoSizeWidth (int columnId) {
 void TableComponent::resized() {
     // position our table with a gap around its edge
     table.setBoundsInset (BorderSize<int> (7));
+    fitColumnsToViewport();
+}
+
+void TableComponent::fitColumnsToViewport() {
+    const int width = table.getVisibleContentWidth();
+    auto& header = table.getHeader();
+    if (width > presetNumberWidth && header.getTotalWidth() != width) {
+        header.resizeAllColumnsToFit(width);
+        table.setMinimumContentWidth(header.getTotalWidth());
+    }
 }
 
 //==============================================================================
