@@ -53,6 +53,9 @@ void SlidersComponent::resized() {
     const int labelHeight{25};
     const int sliderWidth{30};
     Rectangle<int> r{getLocalBounds()};
+    auto output = r.removeFromBottom(40).reduced(4, 2);
+    outputGainLabel.setBounds(output.removeFromLeft(48));
+    outputGainSlider.setBounds(output);
     Rectangle<int> rEnvelope{r.removeFromLeft(envelopeSliders * sliderWidth + (envelopeSliders-1) * sliderXMargin + 2 * groupXPadding)};
     Rectangle<int> rFilter{r.removeFromLeft(filterSliders * sliderWidth + (filterSliders-1) * sliderXMargin + 2 * groupXPadding + groupXMargin).withTrimmedLeft(groupXMargin)};
     envelopeGroup.setBounds(rEnvelope);
@@ -101,6 +104,14 @@ SlidersComponent::SlidersComponent(
 , envelopeGroup{"envelopeGroup", "Envelope"}
 , filterGroup{"filterGroup", "Filter"}
 {
+    outputGainSlider.setSliderStyle(Slider::LinearHorizontal);
+    outputGainSlider.setTextBoxStyle(Slider::TextBoxRight, false, 65, 22);
+    outputGainSlider.setTextValueSuffix(" dB");
+    outputGainAttachment = make_unique<SliderAttachment>(valueTreeState, "outputGain", outputGainSlider);
+    outputGainLabel.setText("Output", dontSendNotification);
+    addAndMakeVisible(outputGainSlider);
+    addAndMakeVisible(outputGainLabel);
+
     const Slider::SliderStyle style{Slider::SliderStyle::LinearVertical};
     const double rangeMin(0);
     const double rangeMax(127);

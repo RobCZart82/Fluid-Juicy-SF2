@@ -79,6 +79,7 @@ private:
 
     FluidSynthModel fluidSynthModel;
     Synthesiser synth;
+    juce::SmoothedValue<float> outputLevel;
 
     AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 

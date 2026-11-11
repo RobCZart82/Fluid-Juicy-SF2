@@ -4,7 +4,8 @@ Audit baseline: `02a3bad63d70e32249a992cb29332c86c00366d3` (2026-11-10).
 See [the complete audit](AUDIT-2026-11-10.md). Status records implementation and
 validation separately; CI is not manual REAPER acceptance.
 
-Current follow-up: [2026-11-11 review and B01-B04 corrections](AUDIT-2026-11-11.md).
+Latest follow-up: [restore, input, settings and output corrections](REVIEW_FIXES_2026-11-11.md).
+Previous follow-up: [2026-11-11 review and B01-B04 corrections](AUDIT-2026-11-11.md).
 Earlier follow-up: [audit remediation from baseline 8f33ca5](AUDIT_REMEDIATION.md).
 
 | ID | Priority | Issue | Implementation | Validation |

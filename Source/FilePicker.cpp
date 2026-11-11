@@ -63,7 +63,7 @@ void FilePicker::resized() {
     fileChooser.setBounds (r);
 }
 
-void FilePicker::showLibrary() {
+void FilePicker::showLibrary(SoundFontLibrary::Edit edit) {
     libraryButton.setEnabled(false);
     libraryButton.setButtonText("Scanning");
     library.scan([this](SoundFontLibrary::Result result) {
@@ -94,16 +94,16 @@ void FilePicker::showLibrary() {
                 if (choice == 1001) safeThis->showLibrary();
                 else if (choice == 1002) safeThis->addLibraryFolder();
                 else if (choice >= 2001 && choice < 2001 + result.savedFolders.size()) {
-                    const auto removed = SoundFontFolders().remove(result.savedFolders[choice - 2001]);
-                    if (removed.failed()) juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
-                        "SoundFont folders", removed.getErrorMessage());
-                    else safeThis->showLibrary();
+                    const auto folder = result.savedFolders[choice - 2001];
+                    safeThis->showLibrary([folder](const std::function<bool()>& cancelled) {
+                        return SoundFontFolders().remove(folder, cancelled);
+                    });
                 } else if (choice > 0 && choice <= result.files.size()) {
                     safeThis->fileChooser.setCurrentFile(result.files[choice - 1], true, dontSendNotification);
                     safeThis->filenameComponentChanged(nullptr);
                 }
             });
-    });
+    }, std::move(edit));
 }
 
 void FilePicker::addLibraryFolder() {
@@ -123,10 +123,9 @@ void FilePicker::addLibraryFolder() {
                 return;
             }
 #endif
-            const auto saved = SoundFontFolders().add(folder, bookmark);
-            if (saved.failed()) juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
-                "SoundFont folders", saved.getErrorMessage());
-            else safeThis->showLibrary();
+            safeThis->showLibrary([folder, bookmark](const std::function<bool()>& cancelled) {
+                return SoundFontFolders().add(folder, bookmark, cancelled);
+            });
         });
 }
 

@@ -35,6 +35,13 @@ FluidSynthModel::Engine::~Engine() {
 #if JUICY_ENABLE_TEST_HOOKS
     if (renderingModel == owner) ++owner->audioReclaims;
 #endif
+    synth.reset();
+    settings.reset();
+#if JUCE_MAC || JUCE_IOS
+    access.reset();
+#endif
+    --owner->liveEngines;
+    owner->engineAvailable.notify_all();
 }
 FluidSynthModel::FluidSynthModel(AudioProcessorValueTreeState& state) : valueTreeState(state) {
     for (auto& value : requestedControllers) value.store(-1);
@@ -71,6 +78,14 @@ FluidSynthModel::~FluidSynthModel() {
 void FluidSynthModel::initialise() { active = makeEngine(targetRate.load()); }
 
 unique_ptr<FluidSynthModel::Engine> FluidSynthModel::makeEngine(float rate) {
+    // Non-RT producers serialize on buildMutex. Retired engines may be in the
+    // middle of destruction on the reclaimer, so wait for their budget credit.
+    for (;;) {
+        reclaimRetired();
+        if (liveEngines.load() < engineBudget) break;
+        unique_lock<mutex> lock(engineBudgetMutex);
+        engineAvailable.wait_for(lock, chrono::milliseconds(10));
+    }
     auto engine = make_unique<Engine>(this);
     engine->rate = rate;
     engine->appliedControllers.fill(-1);
@@ -212,7 +227,8 @@ bool FluidSynthModel::loadSoundFont(const String& path, const MemoryBlock& bookm
     // reentrant host callback made while our own processBlock is on the stack.
     jassert(renderingModel != this);
     if (renderingModel == this) return false;
-    const auto request = newRequest(path, bookmark);
+    auto request = newRequest(path, bookmark);
+    request.crossfade = false; // Host restore must take effect at the next block.
     bool ok;
     {
         lock_guard<mutex> lock(buildMutex);
@@ -276,6 +292,7 @@ bool FluidSynthModel::performLoad(const Request& request) {
 unique_ptr<FluidSynthModel::Engine> FluidSynthModel::prepareFont(const Request& request) {
     auto engine = makeEngine(targetRate.load());
     engine->request = request.id;
+    engine->crossfade = request.crossfade;
     engine->path = request.path;
     engine->bookmark = request.bookmark;
     if (request.path.isEmpty() && request.bookmark.getSize() == 0) return engine;
@@ -362,21 +379,34 @@ bool FluidSynthModel::publish(unique_ptr<Engine> candidate, const Request& reque
     return true;
 }
 
-void FluidSynthModel::reclaimRetired() { delete retired.exchange(nullptr); }
+void FluidSynthModel::retireEngine(Engine* engine) {
+    if (!engine) return;
+    auto* head = retired.load();
+    do { engine->retiredNext = head; }
+    while (!retired.compare_exchange_weak(head, engine));
+}
+void FluidSynthModel::reclaimRetired() {
+    auto* engine = retired.exchange(nullptr);
+    while (engine) {
+        auto* next = engine->retiredNext;
+        delete engine;
+        engine = next;
+    }
+}
 void FluidSynthModel::adoptPending() {
-    // Single retired slot: apply backpressure rather than block or delete on RT.
-    if (fading || retired.load() != nullptr) return;
     if (auto* next = pending.exchange(nullptr)) {
         const auto state = captureChannel(*active);
         restoreChannel(*next, state, false);
+        retireEngine(fading.release());
+        fadeRemaining = 0;
         auto* previous = active.release();
         active.reset(next);
         activeRequest.store(next->request);
-        if (previous->font >= 0 && next->font >= 0 && previous->request >= unloadEpoch.load()) {
+        if (next->crossfade && previous->font >= 0 && next->font >= 0 && previous->request >= unloadEpoch.load()) {
             fading.reset(previous); // Empty owner: no destructor on the render stack.
             fadeRemaining = fadeSamples;
         } else {
-            retired.store(previous);
+            retireEngine(previous);
         }
     }
 }
@@ -593,7 +623,7 @@ void FluidSynthModel::blendRetiringEngine(AudioBuffer<float>& buffer, int start,
             }
         }
         fadeRemaining -= length;
-        if (fadeRemaining == 0) retired.store(fading.release());
+        if (fadeRemaining == 0) retireEngine(fading.release());
     }
 }
 FluidSynthModel::ChannelSnapshot FluidSynthModel::captureChannel(Engine& engine) {

@@ -13,7 +13,7 @@ keeping its familiar interface and bank/preset browser.
 - SF2 and SF3 SoundFont playback.
 - Bank and preset selection, on-screen keyboard and MIDI input.
 - Background SoundFont loading with recovery after a failed bank change.
-- Filter, attack, decay, sustain and release controls.
+- Filter, envelope and automatable output-level controls.
 - VST3 plug-in and standalone application.
 - Build targets: macOS Apple Silicon, macOS Intel and Windows x64.
 
@@ -43,6 +43,7 @@ Windows packages are unsigned. REAPER and minimum-OS acceptance remain open.
    to forget it, and **Refresh** to rescan. The list shows parent paths. See
    [folder locations and access limits](docs/DEVELOPMENT_PLAN.md#soundfont-drop-folders).
 4. Select a bank and preset, then play using MIDI or the on-screen keyboard.
+5. Adjust **Output** while watching the host meter. New instances start at −12 dB.
 
 In standalone mode, select your audio device and MIDI input under
 **Options → Audio/MIDI settings**. SoundFonts are not included.

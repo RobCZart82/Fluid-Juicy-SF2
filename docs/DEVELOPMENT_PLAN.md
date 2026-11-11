@@ -82,7 +82,10 @@ Use Add folder to choose up to 16 additional folders. Remove folder forgets a
 remembered location and leaves its bank files intact. The folder list is a
 per-user preference shared by instances using the same settings location.
 Folder changes reread the latest file under an interprocess lock and replace
-it through a temporary file. Invalid settings are reported and preserved.
+it through a temporary file. Reads and edits run on the library worker. Lock
+acquisition checks cancellation every 5 ms and returns a busy error after 250 ms,
+leaving the saved file intact. Invalid settings are reported and preserved.
+Cancellation cannot interrupt an OS filesystem call already in progress.
 
 Settings are stored at the OS user application-data location:
 - Windows: %APPDATA%/Fluid Juicy SF2/SoundFontFolders.xml

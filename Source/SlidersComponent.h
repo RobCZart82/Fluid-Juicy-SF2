@@ -26,6 +26,10 @@ private:
     AudioProcessorValueTreeState& valueTreeState;
     FluidSynthModel& fluidSynthModel;
 
+    Slider outputGainSlider;
+    Label outputGainLabel;
+    unique_ptr<SliderAttachment> outputGainAttachment;
+
     GroupComponent envelopeGroup;
 
     Slider attackSlider;
