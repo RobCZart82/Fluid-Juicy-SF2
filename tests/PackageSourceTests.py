@@ -20,6 +20,9 @@ class SourcePackaging(unittest.TestCase):
                 return subprocess.run(['git', '-C', directory, *args], check=True,
                                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
             git('init')
+            # Keep this byte-preservation fixture independent of Windows/global EOL policy.
+            git('config', 'core.autocrlf', 'false')
+            git('config', 'core.eol', 'lf')
             (root / 'source.txt').write_bytes(b'exact source\n')
             git('add', 'source.txt')
             git('-c', 'user.name=Test', '-c', 'user.email=test@example.invalid',
