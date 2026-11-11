@@ -80,7 +80,7 @@ private:
         String path;
         MemoryBlock bookmark;
     };
-    struct Request { String path; MemoryBlock bookmark; uint64_t id; bool crossfade = true; };
+    struct Request { String path; MemoryBlock bookmark; uint64_t id; bool crossfade = true; bool preserveReferenceOnFailure = false; };
     struct ChannelSnapshot {
         array<int, 120> controllers{};
         array<float, GEN_LAST> generators{};

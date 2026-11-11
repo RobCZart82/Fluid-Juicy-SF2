@@ -103,3 +103,17 @@ corrupt-settings preservation and invalid bookmark-size rejection.
 Windows reparse-tag checks distinguish redirected links from OneDrive placeholders.
 macOS bookmark restart/permission acceptance, OneDrive-only files and manual REAPER/large-bank tests
 remain separate from compilation and automated directory tests.
+
+### Missing-bank relocation
+
+The editor now gives an unavailable project bank a persistent status row and a
+Locate action. The native chooser selects a replacement explicitly; cancellation
+leaves state untouched. Loading uses the existing background worker. Failed GUI
+recovery retains the original missing reference, and success commits the new
+path/bookmark while retaining parameters and compatible bank/program selection.
+The host project must be saved again. See the [user guide](USER_GUIDE.md).
+
+Regressions cover missing-media UI on opening, invalid replacement preservation,
+background recovery of bank 8/program 1, unchanged parameters, cleared status and
+reopening saved recovered state. Native chooser cancellation/permissions, SF3
+banks and manual REAPER relocation on both OS families remain acceptance gates.

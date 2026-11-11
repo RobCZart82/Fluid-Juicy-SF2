@@ -335,6 +335,64 @@ int main(int argc, char** argv) {
     restoreXml(missingRecall, *brokenProject);
     check(saveXml(missingRecall)->getChildByName("soundFont")->getStringAttribute("path") == missing.getFullPathName(),
           "fresh missing-media recall retains its reference for relocation");
+    {
+        // Reopening the editor must explain missing media without an alert loop.
+        const auto findByID = [](Component& root, const String& id) -> Component* {
+            std::function<Component*(Component&)> search = [&](Component& c) -> Component* {
+                if (c.getComponentID() == id) return &c;
+                for (auto* child : c.getChildren())
+                    if (auto* result = search(*child)) return result;
+                return nullptr;
+            };
+            return search(root);
+        };
+        auto relocationState = std::make_unique<XmlElement>(*selectedState);
+        relocationState->getChildByName("soundFont")->setAttribute("path", missing.getFullPathName());
+        JuicySFAudioProcessor relocation;
+        relocation.prepareToPlay(44100, 8192);
+        restoreXml(relocation, *relocationState);
+        const auto preserved = saveXml(relocation);
+        {
+            std::unique_ptr<AudioProcessorEditor> ui(relocation.createEditor());
+            auto* locate = findByID(*ui, "locateSoundFont");
+            auto* status = dynamic_cast<Label*>(findByID(*ui, "soundFontStatus"));
+            check(locate && locate->isVisible() && locate->isEnabled()
+                      && status && status->isVisible() && status->getText().contains("unavailable"),
+                  "missing-media editor offers a persistent Locate action and explanation");
+            check(saveXml(relocation)->getChildByName("soundFont")->getStringAttribute("path") == missing.getFullPathName(),
+                  "opening relocation UI leaves the missing reference untouched");
+        }
+        auto& model = relocation.getFluidSynthModel();
+        const auto awaitLoad = [&] {
+            const auto deadline = juce::Time::getMillisecondCounterHiRes() + 5000.0;
+            while (model.isLoading() && juce::Time::getMillisecondCounterHiRes() < deadline)
+                juce::Thread::sleep(1);
+            return !model.isLoading();
+        };
+        model.requestSoundFont(corrupt.getFile().getFullPathName(), {});
+        check(awaitLoad() && !model.hasLoadedSoundFont()
+                  && model.getSoundFontState().path == missing.getFullPathName(),
+              "invalid relocation leaves the original missing reference intact");
+        check(saveXml(relocation)->getChildByName("params")->toString() == preserved->getChildByName("params")->toString(),
+              "invalid relocation preserves project parameters for another attempt");
+        model.requestSoundFont(replacement.getFile().getFullPathName(), {});
+        check(awaitLoad() && model.hasLoadedSoundFont(), "relocated bank loads on the background worker");
+        checkFrequency(relocation, 880.0, "relocation recovers the saved bank/program rather than the first preset");
+        const auto recovered = saveXml(relocation);
+        check(recovered->getChildByName("params")->toString() == preserved->getChildByName("params")->toString()
+                  && recovered->getChildByName("soundFont")->getStringAttribute("path") == replacement.getFile().getFullPathName(),
+              "successful relocation saves its new path without changing mix or envelope parameters");
+        model.synchroniseUi();
+        std::unique_ptr<AudioProcessorEditor> ui(relocation.createEditor());
+        auto* locate = findByID(*ui, "locateSoundFont");
+        auto* status = findByID(*ui, "soundFontStatus");
+        check(locate && !locate->isVisible() && status && !status->isVisible(),
+              "recovered project no longer shows the missing-media action or status row");
+        JuicySFAudioProcessor reopened;
+        reopened.prepareToPlay(44100, 8192);
+        restoreXml(reopened, *recovered);
+        checkFrequency(reopened, 880.0, "saved relocated project reopens with its selected bank/program");
+    }
     // Audit reliability regressions use fresh engines so prior voices/effects
     // cannot hide a failure. Assert public behavior, not internal API calls.
     const auto energy = [](const AudioBuffer<float>& block) {

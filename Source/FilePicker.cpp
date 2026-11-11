@@ -40,15 +40,23 @@ FilePicker::FilePicker(
 
     addAndMakeVisible (fileChooser);
     addAndMakeVisible(libraryButton);
+    addChildComponent(locateButton);
+    addChildComponent(statusLabel);
+    locateButton.setComponentID("locateSoundFont");
+    statusLabel.setComponentID("soundFontStatus");
+    locateButton.setTooltip("Locate the SoundFont used by this project at its new location");
+    locateButton.onClick = [this] { locateSoundFont(); };
+    statusLabel.setFont(juce::FontOptions(12.0f));
     libraryButton.setTooltip("Find SF2/SF3 files in the user and shared SoundFont folders");
     libraryButton.onClick = [this] { showLibrary(); };
     fileChooser.addListener (this);
     valueTreeState.state.addListener(this);
-    triggerAsyncUpdate();
+    handleAsyncUpdate();
 //    valueTreeState.state.getChildWithName("soundFont").sendPropertyChangeMessage("path");
 
 }
 FilePicker::~FilePicker() {
+    relocationChooser.reset();
     folderChooser.reset();
     library.cancel();
     cancelPendingUpdate();
@@ -57,7 +65,13 @@ FilePicker::~FilePicker() {
 }
 
 void FilePicker::resized() {
-    Rectangle<int> r (getLocalBounds());
+    Rectangle<int> bounds (getLocalBounds());
+    Rectangle<int> r = bounds.removeFromTop(25);
+    statusLabel.setBounds(bounds);
+    if (locateButton.isVisible()) {
+        locateButton.setBounds(r.removeFromRight(72));
+        r.removeFromRight(4);
+    }
     libraryButton.setBounds(r.removeFromRight(60));
     r.removeFromRight(4);
     fileChooser.setBounds (r);
@@ -137,14 +151,33 @@ void FilePicker::paint(Graphics& g)
     g.fillAll(findColour(ResizableWindow::backgroundColourId));
 }
 
-void FilePicker::filenameComponentChanged (FilenameComponent*) {
+void FilePicker::locateSoundFont() {
+    // No automatic filename search: the user chooses the replacement bank.
+    const auto saved = fluidSynthModel.getSoundFontState();
+    relocationChooser = std::make_unique<juce::FileChooser>(
+        "Locate SoundFont: " + File(saved.path).getFileName(), File(saved.path), "*.sf2;*.sf3");
+    juce::Component::SafePointer<FilePicker> safeThis(this);
+    relocationChooser->launchAsync(juce::FileBrowserComponent::openMode
+        | juce::FileBrowserComponent::canSelectFiles,
+        [safeThis](const juce::FileChooser& chooser) {
+            if (!safeThis) return;
+            const auto file = chooser.getResult();
+            if (file == File()) return; // Cancellation changes neither state nor parameters.
+            safeThis->loadSelectedFile(file);
+        });
+}
+
+void FilePicker::loadSelectedFile(const File& file) {
     MemoryBlock bookmark;
 #if JUCE_MAC || JUCE_IOS
-    bookmark = JuicyMac::createReadOnlyBookmark(fileChooser.getCurrentFile());
+    bookmark = JuicyMac::createReadOnlyBookmark(file);
 #endif
-    fluidSynthModel.requestSoundFont(fileChooser.getCurrentFile().getFullPathName(), bookmark);
-    // Also refresh after repeated failures whose identical error property may not notify.
+    fluidSynthModel.requestSoundFont(file.getFullPathName(), bookmark);
     triggerAsyncUpdate();
+}
+
+void FilePicker::filenameComponentChanged (FilenameComponent*) {
+    loadSelectedFile(fileChooser.getCurrentFile());
 }
 
 void FilePicker::valueTreePropertyChanged(ValueTree& treeWhosePropertyHasChanged,
@@ -161,9 +194,20 @@ void FilePicker::handleAsyncUpdate() {
     fileChooser.setCurrentFile(path.isEmpty() ? File() : File(path), true, dontSendNotification);
     currentPath = path;
     const String error = state.getProperty("loadError", "");
-    fileChooser.setTooltip(fluidSynthModel.isLoading() ? "Loading SoundFont in the background..."
+    const bool loading = fluidSynthModel.isLoading();
+    const bool unavailable = error.isNotEmpty() && !fluidSynthModel.hasLoadedSoundFont() && path.isNotEmpty();
+    const int previousHeight = getPreferredHeight();
+    locateButton.setVisible(unavailable);
+    locateButton.setEnabled(!loading);
+    statusLabel.setVisible(loading || unavailable);
+    statusLabel.setText(loading ? "Loading SoundFont..." : "SoundFont unavailable. Locate the file or choose another bank.",
+                        dontSendNotification);
+    statusLabel.setTooltip(error);
+    fileChooser.setTooltip(loading ? "Loading SoundFont in the background..."
         : error.isEmpty() ? "Choose an SF2 or SF3 SoundFont" : error);
-    if (error.isNotEmpty() && error != displayedError)
+    resized();
+    if (previousHeight != getPreferredHeight() && onLayoutChanged) onLayoutChanged();
+    if (!unavailable && error.isNotEmpty() && error != displayedError)
         juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
             "SoundFont could not be loaded", error);
     displayedError = error;
