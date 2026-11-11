@@ -73,6 +73,17 @@ widgets and restored editor dimensions also use message-thread timers. Normal ho
 parameters during serialization; no whole-project sample-atomic snapshot is
 claimed.
 
+Successful GUI publication compares the committed path/bookmark and raises a
+coalesced atomic host-state flag when the reference changes. A processor-owned
+30 Hz message-thread timer consumes it and sends JUCE's non-parameter-state
+notification, independently of editor lifetime. Neither the loader nor render
+callback calls the host for this event, and no model lock is held during host
+notification. Successful synchronous recall clears pending GUI notification
+intent; rate preparation and failed working-bank replacements do not mark edits.
+The notification asks a compatible host to offer saving, rather than saving a
+project automatically. Host-specific dirty-project behavior remains a manual
+acceptance check.
+
 Request generations govern publication. An unload epoch also suppresses an
 obsolete active/fading engine if an empty candidate is superseded before audio
 can adopt it. This prevents old held notes from fading back on a later reload.

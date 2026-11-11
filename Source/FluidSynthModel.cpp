@@ -214,7 +214,11 @@ FluidSynthModel::Request FluidSynthModel::newRequest(const String& path, const M
     return request;
 }
 void FluidSynthModel::requestSoundFont(const String& path, const MemoryBlock& bookmark) {
+    const auto previous = getSoundFontState();
     auto request = newRequest(path, bookmark);
+    // A failed manual relocation must not replace the project's missing reference.
+    request.preserveReferenceOnFailure = previous.path.isNotEmpty();
+    request.notifyHost = true;
     {
         lock_guard<mutex> lock(requestMutex);
         if (request.id == latestRequest.load() && !stopping) queued = std::move(request);
@@ -278,7 +282,7 @@ bool FluidSynthModel::performLoad(const Request& request) {
         lock_guard<mutex> lock(requestMutex);
         if (stopping || request.id != latestRequest.load()) return false;
         lock_guard<mutex> stateLock(stateMutex);
-        if (!publishedHasFont.load()) {
+        if (!publishedHasFont.load() && !request.preserveReferenceOnFailure) {
             committed.path = request.path;
             committed.bookmark = request.bookmark;
         }
@@ -359,7 +363,14 @@ bool FluidSynthModel::publish(unique_ptr<Engine> candidate, const Request& reque
         if (stopping || request.id != latestRequest.load()) return false;
         {
             lock_guard<mutex> stateLock(stateMutex);
+            const bool referenceChanged = committed.path != candidate->path || committed.bookmark != candidate->bookmark;
             committed = {candidate->path, candidate->bookmark, {}};
+            if (request.notifyHost) {
+                if (referenceChanged) hostStateChanged.store(true);
+            } else {
+                // A successful host recall supersedes any GUI change awaiting delivery.
+                hostStateChanged.store(false);
+            }
             publishedMetadata = candidate->metadata;
             const bool empty = candidate->font < 0;
             publishedHasFont.store(!empty);

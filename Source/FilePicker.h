@@ -27,6 +27,8 @@ public:
 
     void resized() override;
     void paint (Graphics& g) override;
+    int getPreferredHeight() const { return statusLabel.isVisible() ? 49 : 25; }
+    std::function<void()> onLayoutChanged;
 
     void setDisplayedFilePath(const String&);
     
@@ -46,6 +48,11 @@ private:
     void handleAsyncUpdate() override;
     FilenameComponent fileChooser;
     TextButton libraryButton{"Banks"};
+    TextButton locateButton{"Locate..."};
+    Label statusLabel;
+    void locateSoundFont();
+    void loadSelectedFile(const File&);
+    std::unique_ptr<juce::FileChooser> relocationChooser;
     SoundFontLibrary library;
     void showLibrary(SoundFontLibrary::Edit edit = {});
     void addLibraryFolder();

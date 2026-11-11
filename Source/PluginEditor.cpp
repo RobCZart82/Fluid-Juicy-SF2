@@ -24,6 +24,7 @@ JuicySFAudioProcessorEditor::JuicySFAudioProcessorEditor(
 , filePicker{valueTreeState, p.getFluidSynthModel()}
 , slidersComponent{valueTreeState, p.getFluidSynthModel()}
 {
+    filePicker.onLayoutChanged = [this] { resized(); };
     const auto restoredSize = processor.getEditorSize();
     setLookAndFeel(&colours);
 
@@ -84,7 +85,7 @@ void JuicySFAudioProcessorEditor::resized()
 {
     const int padding{8};
     const int pianoHeight{70};
-    const int filePickerHeight{25};
+    const int filePickerHeight{filePicker.getPreferredHeight()};
     Rectangle<int> r{getLocalBounds()};
     filePicker.setBounds(r.removeFromTop(filePickerHeight + padding).reduced(padding, 0).withTrimmedTop(padding));
 

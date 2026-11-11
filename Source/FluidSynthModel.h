@@ -39,6 +39,8 @@ public:
     struct SoundFontState { String path; MemoryBlock bookmark; String error; unsigned int bankProgram = 0; };
     SoundFontState getSoundFontState() const;
     String getLoadError() const { return getSoundFontState().error; }
+    // Message-thread processor polling: no host callback is made under model locks.
+    bool consumeHostStateChange() { return hostStateChanged.exchange(false); }
     void synchroniseUi(); // Message thread only; also used when opening an editor.
     int getNumPrograms() { return 128; }
     int getCurrentProgram();
@@ -80,7 +82,14 @@ private:
         String path;
         MemoryBlock bookmark;
     };
-    struct Request { String path; MemoryBlock bookmark; uint64_t id; bool crossfade = true; };
+    struct Request {
+        String path;
+        MemoryBlock bookmark;
+        uint64_t id;
+        bool crossfade = true;
+        bool preserveReferenceOnFailure = false;
+        bool notifyHost = false;
+    };
     struct ChannelSnapshot {
         array<int, 120> controllers{};
         array<float, GEN_LAST> generators{};
@@ -126,6 +135,7 @@ private:
     atomic<float> targetRate{44100};
     atomic<unsigned int> selection{0};
     array<atomic<int>, 128> requestedControllers;
+    atomic<bool> hostStateChanged{false};
     atomic<bool> desiredEmpty{true}, publishedHasFont{false}, loading{false}, uiDirty{true};
     atomic<uint64_t> latestRequest{0}, activeRequest{0}, unloadEpoch{0};
     mutable mutex stateMutex;

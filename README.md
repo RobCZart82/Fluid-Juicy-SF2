@@ -45,6 +45,9 @@ Windows packages are unsigned. REAPER and minimum-OS acceptance remain open.
 4. Select a bank and preset, then play using MIDI or the on-screen keyboard.
 5. Adjust **Output** while watching the host meter. New instances start at −12 dB.
 
+If a saved bank has moved, use **Locate...** to choose its new location.
+See the [user guide](docs/USER_GUIDE.md) for project recall and folder setup.
+
 In standalone mode, select your audio device and MIDI input under
 **Options → Audio/MIDI settings**. SoundFonts are not included.
 
