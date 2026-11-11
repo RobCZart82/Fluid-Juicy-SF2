@@ -53,12 +53,12 @@ TableComponent::TableComponent(
     );
 
     table.setWantsKeyboardFocus(false);
+    table.getHeader().setSortColumnId(1, true);
 
     ValueTree banks{valueTreeState.state.getChildWithName("banks")};
     loadModelFrom(banks);
 
     // we could now change some initial settings..
-    table.getHeader().setSortColumnId(1, false); // sort ascending by ID column
     valueTreeState.state.addListener(this);
     startTimerHz(30);
 }
@@ -114,9 +114,11 @@ void TableComponent::repopulateTable() {
         back_inserter(rows),
         mem_fn(&BanksToPresets::value_type::second)
         );
+    const auto& header = table.getHeader();
+    DataSorter sorter(header.getSortColumnId(), header.isSortedForwards());
+    sort(rows.begin(), rows.end(), sorter);
     table.deselectAllRows();
     table.updateContent();
-    table.getHeader().setSortColumnId(0, true);
     selectCurrentPreset();
     table.repaint();
 }
@@ -272,7 +274,7 @@ bool TableComponent::DataSorter::operator ()(
 
     result *= direction;
 
-    return result > 0;
+    return result < 0;
 }
 
 void TableComponent::selectedRowsChanged (int row) {
@@ -280,6 +282,7 @@ void TableComponent::selectedRowsChanged (int row) {
         return;
     }
     int newPreset{rows[row].preset};
+    displayedPreset = newPreset;
     RangedAudioParameter *param{valueTreeState.getParameter("preset")};
     jassert(dynamic_cast<AudioParameterInt*>(param) != nullptr);
     AudioParameterInt* castParam{dynamic_cast<AudioParameterInt*>(param)};

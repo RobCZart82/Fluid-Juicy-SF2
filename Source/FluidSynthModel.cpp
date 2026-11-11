@@ -323,7 +323,9 @@ unique_ptr<FluidSynthModel::Engine> FluidSynthModel::prepareFont(const Request& 
     const int bank = static_cast<int>(engine->builtSelectionRequest >> 16);
     const int program = static_cast<int>(engine->builtSelectionRequest & 0xffffu);
     if (fluid_synth_program_select(engine->synth.get(), 0, engine->font, bank, program) != FLUID_OK) {
-        const auto& first = metadata->presets.front();
+        const auto inBank = find_if(metadata->presets.begin(), metadata->presets.end(),
+            [bank](const Preset& preset) { return preset.bank == bank; });
+        const auto& first = inBank != metadata->presets.end() ? *inBank : metadata->presets.front();
         if (fluid_synth_program_select(engine->synth.get(), 0, engine->font, first.bank, first.program) != FLUID_OK)
             return nullptr;
     }
@@ -758,14 +760,28 @@ void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiM
 //            fluid_synth_handle_midi_event(synth.get(), midi_event);
 //            delete_fluid_midi_event(midi_event);
         } else if (m.isSysEx()) {
-            fluid_synth_sysex(
+            int handled = 0;
+            const int result = fluid_synth_sysex(
                 synth.get(),
                 reinterpret_cast<const char*>(m.getSysExData()),
                 m.getSysExDataSize(),
                 nullptr, // no response pointer because we have no interest in handling response currently
                 nullptr, // no response_len pointer because we have no interest in handling response currently
-                nullptr, // no handled pointer because we have no interest in handling response currently
+                &handled,
                 static_cast<int>(false));
+            if (result == FLUID_OK && handled) {
+                // A GM/GS reset can change the synth without parameter callbacks.
+                // Publish its actual controls before resolving its program so
+                // applyControls cannot reapply values from before the reset.
+                for (const auto& entry : controllerToParam) {
+                    int value = 0;
+                    fluid_synth_get_cc(synth.get(), channel, static_cast<int>(entry.first), &value);
+                    requestedControllers[static_cast<size_t>(entry.first)].store(value);
+                    engine.appliedControllers[static_cast<size_t>(entry.first)] = value;
+                    *static_cast<AudioParameterInt*>(valueTreeState.getParameter(entry.second)) = value;
+                }
+                publishCurrentSelection(engine);
+            }
         }
     }
 

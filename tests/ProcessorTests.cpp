@@ -111,6 +111,14 @@ int main(int argc, char** argv) {
     auto* table = findTable(*editor);
     check(table != nullptr && table->getNumRows() == 2, "editor lists both original fixture presets");
     if (table != nullptr) {
+        for (const int column : {1, 2}) {
+            table->getTableListBoxModel()->sortOrderChanged(column, false);
+            table->selectRow(0);
+            check(processor.getCurrentProgram() == 1, "descending preset order puts program 1 first");
+            table->getTableListBoxModel()->sortOrderChanged(column, true);
+            table->selectRow(0);
+            check(processor.getCurrentProgram() == 0, "ascending preset order puts program 0 first");
+        }
         const int beforeSelection = table->getSelectedRow();
         std::thread render([&] {
             MidiBuffer events;
@@ -196,6 +204,17 @@ int main(int argc, char** argv) {
     checkFrequency(recalled, 880.0, "saved MIDI bank/program survive project recall");
 
     const String originalPath = selectedState->getChildByName("soundFont")->getStringAttribute("path");
+    {
+        JuicySFAudioProcessor sparseReplacement;
+        sparseReplacement.prepareToPlay(44100.0, 8192);
+        restoreXml(sparseReplacement, *selectedState);
+        const auto sparse = File(originalPath).getSiblingFile("test-sparse.sf2");
+        check(sparseReplacement.getFluidSynthModel().loadSoundFont(sparse.getFullPathName(), MemoryBlock()),
+              "replacement with a missing preset in an existing bank loads");
+        check(sparseReplacement.getFluidSynthModel().getBankProgram() == (8u << 16),
+              "replacement resolves a missing preset within the requested bank first");
+        checkFrequency(sparseReplacement, 880.0, "same-bank replacement fallback renders the octave bank");
+    }
     const juce::File original(originalPath);
     const auto missing = original.getSiblingFile("definitely-missing-juicy-regression.sf2");
     check(!bankProcessor.getFluidSynthModel().loadSoundFont(missing.getFullPathName(), MemoryBlock()),
@@ -246,6 +265,24 @@ int main(int argc, char** argv) {
         target.prepareToPlay(44100.0, 1024);
         check(target.getFluidSynthModel().loadSoundFont(originalPath, MemoryBlock()), "reliability fixture loads");
     };
+    {
+        JuicySFAudioProcessor gmReset;
+        loadFixture(gmReset);
+        gmReset.setCurrentProgram(1);
+        AudioBuffer<float> block(2, 256);
+        MidiBuffer events;
+        events.addEvent(MidiMessage::controllerEvent(1, 73, 112), 0);
+        gmReset.processBlock(block, events);
+        const juce::uint8 gmOn[] = {0x7e, 0x7f, 0x09, 0x01};
+        events.addEvent(MidiMessage::createSysExMessage(gmOn, sizeof(gmOn)), 0);
+        gmReset.processBlock(block, events);
+        auto resetState = saveXml(gmReset);
+        check(gmReset.getCurrentProgram() == 0
+                  && resetState->getChildByName("params")->getDoubleAttribute("preset") == 0.0,
+              "GM System On updates the host and saved program to the engine selection");
+        check(std::abs(resetState->getChildByName("params")->getDoubleAttribute("attack") - 64.0 / 127.0) < 1.0e-6,
+              "GM System On publishes the engine's reset sound-controller values");
+    }
     {
         JuicySFAudioProcessor mono;
         auto layout = mono.getBusesLayout();
