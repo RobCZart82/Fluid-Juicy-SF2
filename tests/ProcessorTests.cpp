@@ -111,6 +111,21 @@ int main(int argc, char** argv) {
     auto* table = findTable(*editor);
     check(table != nullptr && table->getNumRows() == 2, "editor lists both original fixture presets");
     if (table != nullptr) {
+        table->setSize(table->getWidth(), table->getHeaderHeight() + table->getRowHeight());
+        const auto widthDeadline = juce::Time::getMillisecondCounterHiRes() + 1500.0;
+        while (table->getHeader().getTotalWidth() != table->getVisibleContentWidth()
+               && juce::Time::getMillisecondCounterHiRes() < widthDeadline) {
+            juce::Timer::callPendingTimersSynchronously();
+            juce::Thread::sleep(5);
+        }
+        check(table->getVerticalScrollBar().isVisible()
+                  && !table->getHorizontalScrollBar().isVisible()
+                  && table->getHeader().getTotalWidth() == table->getVisibleContentWidth(),
+              "preset columns stop before the vertical scrollbar without horizontal overflow");
+        table->getParentComponent()->resized();
+        check(table->getHeader().getTotalWidth() == table->getVisibleContentWidth()
+                  && table->getHeader().getColumnWidth(1) == 48,
+              "name column expands again while the preset number stays fixed");
         for (const int column : {1, 2}) {
             table->getTableListBoxModel()->sortOrderChanged(column, false);
             table->selectRow(0);
