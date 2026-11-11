@@ -1,6 +1,30 @@
 #include "SoundFontLibrary.h"
 #include <algorithm>
 #include "SoundFontFolders.h"
+#if JUCE_WINDOWS
+#include <windows.h>
+#endif
+
+namespace {
+bool isLibraryLink(const juce::File& file)
+{
+    if (!file.isSymbolicLink()) return false;
+#if JUCE_WINDOWS
+    // JUCE treats every reparse point as a link, including OneDrive placeholders.
+    // Inspect the tag without reading or downloading the sample data.
+    const auto handle = CreateFileW(file.getFullPathName().toWideCharPointer(), 0,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING,
+        FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS, nullptr);
+    if (handle == INVALID_HANDLE_VALUE) return true;
+    FILE_ATTRIBUTE_TAG_INFO info{};
+    const bool read = GetFileInformationByHandleEx(handle, FileAttributeTagInfo, &info, sizeof(info)) != 0;
+    CloseHandle(handle);
+    return !read || IsReparseTagNameSurrogate(info.ReparseTag);
+#else
+    return true;
+#endif
+}
+}
 
 SoundFontLibrary::SoundFontLibrary() : Thread("SoundFont library scan") {}
 SoundFontLibrary::~SoundFontLibrary() { cancel(); }
@@ -26,7 +50,7 @@ SoundFontLibrary::Result SoundFontLibrary::scanFolders(
     int entries = 0;
     for (const auto& folder : folders) {
         if (cancelled()) break;
-        if (!folder.isDirectory() || folder.isSymbolicLink()) continue;
+        if (!folder.isDirectory() || isLibraryLink(folder)) continue;
         for (const auto& entry : juce::RangedDirectoryIterator(folder, false, "*", juce::File::findFilesAndDirectories)) {
             if (cancelled()) return found;
             if (++entries > 10000 || found.files.size() >= 256) {
@@ -34,7 +58,7 @@ SoundFontLibrary::Result SoundFontLibrary::scanFolders(
                 break;
             }
             const auto file = entry.getFile();
-            if (file.isSymbolicLink() || file.isDirectory() || !file.hasReadAccess()) continue;
+            if (isLibraryLink(file) || file.isDirectory() || !file.hasReadAccess()) continue;
             const auto extension = file.getFileExtension();
             if (extension.equalsIgnoreCase(".sf2") || extension.equalsIgnoreCase(".sf3"))
                 found.files.addIfNotAlreadyThere(file);

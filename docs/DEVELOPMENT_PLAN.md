@@ -97,5 +97,6 @@ Browse is available when folder access cannot be saved.
 Native Windows build and both CTest suites passed locally, including persistence,
 duplicate-folder updates, concurrent edits, removal without deleting files,
 corrupt-settings preservation and invalid bookmark-size rejection.
-macOS bookmark restart/permission acceptance and manual REAPER/large-bank tests
+Windows reparse-tag checks distinguish redirected links from OneDrive placeholders.
+macOS bookmark restart/permission acceptance, OneDrive-only files and manual REAPER/large-bank tests
 remain separate from compilation and automated directory tests.
