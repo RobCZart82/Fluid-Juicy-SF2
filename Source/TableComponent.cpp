@@ -16,6 +16,10 @@
 using namespace std;
 using namespace Util;
 
+namespace {
+constexpr int presetNumberWidth = 48;
+}
+
 //==============================================================================
 /**
     This class shows how to implement a TableListBoxModel to show in a TableListBox.
@@ -38,19 +42,20 @@ TableComponent::TableComponent(
     table.getHeader().addColumn (
             String("#"),
             columnIx++,
-            30, // column width
-            30, // min width
-            400, // max width
-            TableHeaderComponent::defaultFlags
+            presetNumberWidth,
+            presetNumberWidth,
+            presetNumberWidth,
+            TableHeaderComponent::visible | TableHeaderComponent::sortable
     );
     table.getHeader().addColumn (
             String("Name"),
             columnIx++,
             200, // column width
             30, // min width
-            400, // max width
-            TableHeaderComponent::defaultFlags
+            -1, // fill the available width without a fixed upper limit
+            TableHeaderComponent::visible | TableHeaderComponent::sortable
     );
+    table.getHeader().setStretchToFitActive(true);
 
     table.setWantsKeyboardFocus(false);
     table.getHeader().setSortColumnId(1, true);
@@ -225,7 +230,7 @@ void TableComponent::selectCurrentPreset() {
 // column.
 int TableComponent::getColumnAutoSizeWidth (int columnId) {
     if (columnId == 1)
-        return 30;
+        return presetNumberWidth;
 
     
     int widest = 32;
