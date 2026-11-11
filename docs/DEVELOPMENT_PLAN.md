@@ -117,3 +117,15 @@ Regressions cover missing-media UI on opening, invalid replacement preservation,
 background recovery of bank 8/program 1, unchanged parameters, cleared status and
 reopening saved recovered state. Native chooser cancellation/permissions, SF3
 banks and manual REAPER relocation on both OS families remain acceptance gates.
+
+### Host save notification
+
+Successful GUI bank-reference changes (including relocation and clearing) now
+request host state saving through a processor message-thread timer. Delivery
+works with the editor closed and coalesces multiple changes. Synchronous project
+recall suppresses an obsolete pending GUI notification. Unchanged references,
+failed working-bank replacements and sample-rate preparation do not report edits.
+Tests attach a host listener, query saved state reentrantly from the notification,
+and verify missing-media recovery and absence of worker/audio-thread delivery.
+Verify the actual modified-project indicator and close/save prompt in REAPER on
+each target platform before release.

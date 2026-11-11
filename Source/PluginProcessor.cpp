@@ -45,6 +45,7 @@ JuicySFAudioProcessor::JuicySFAudioProcessor()
     valueTreeState.state.appendChild({ "banks", {}, {} }, nullptr);
 
     initialiseSynth();
+    startTimerHz(30); // Host state notifications must also work with the editor closed.
 }
 
 AudioProcessorValueTreeState::ParameterLayout JuicySFAudioProcessor::createParameterLayout() {
@@ -73,6 +74,12 @@ AudioProcessorValueTreeState::ParameterLayout JuicySFAudioProcessor::createParam
 
 JuicySFAudioProcessor::~JuicySFAudioProcessor()
 {
+    stopTimer();
+}
+
+void JuicySFAudioProcessor::timerCallback() {
+    if (fluidSynthModel.consumeHostStateChange())
+        updateHostDisplay(ChangeDetails().withNonParameterStateChanged(true));
 }
 
 void JuicySFAudioProcessor::initialiseSynth() {

@@ -42,6 +42,11 @@ select the file or folder again. Cloud-only files may need downloading first.
 Save the host project after selecting your SoundFont and preset. Projects store
 its path and, on macOS, an access bookmark; they do not embed SoundFont samples.
 Keep the external bank available when moving projects between machines.
+After a successful bank-reference change or clearing the bank, the plugin sends
+its host a state-changed notification, even with the editor closed. Compatible
+hosts can mark the project as modified; this does not save the project for you.
+Project recall, unchanged references and failed replacements of a working bank
+do not generate this notification.
 
 If a project opens without a playable bank, the picker shows **SoundFont
 unavailable** and **Locate...**. The full error is available in the tooltip.

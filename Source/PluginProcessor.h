@@ -22,7 +22,7 @@ using namespace std;
 //==============================================================================
 /**
 */
-class JuicySFAudioProcessor  : public AudioProcessor
+class JuicySFAudioProcessor  : public AudioProcessor, private juce::Timer
 {
 public:
     //==============================================================================
@@ -71,6 +71,7 @@ public:
     void setEditorSize(int width, int height);
 
 private:
+    void timerCallback() override;
     void initialiseSynth();
     std::atomic<uint64_t> editorSize{(uint64_t(GuiConstants::minWidth) << 32)
                                     | uint64_t(GuiConstants::minHeight)};

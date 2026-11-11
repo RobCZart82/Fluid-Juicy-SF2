@@ -5,6 +5,7 @@
 #include <functional>
 #include "LoaderTests.h"
 #include "ReviewFixTests.h"
+#include "HostStateTests.h"
 #include "../Source/SoundFontLibrary.h"
 #include "../Source/SoundFontFolders.h"
 
@@ -551,5 +552,6 @@ int main(int argc, char** argv) {
     }
     failures += runLoaderTests(originalPath);
     failures += runReviewFixTests(originalPath);
+    failures += runHostStateTests(originalPath);
     return failures == 0 ? 0 : 1;
 }
