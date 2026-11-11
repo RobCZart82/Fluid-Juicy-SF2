@@ -4,7 +4,8 @@ Audit baseline: `02a3bad63d70e32249a992cb29332c86c00366d3` (2026-11-10).
 See [the complete audit](AUDIT-2026-11-10.md). Status records implementation and
 validation separately; CI is not manual REAPER acceptance.
 
-Current follow-up: [audit remediation from baseline 8f33ca5](AUDIT_REMEDIATION.md).
+Current follow-up: [2026-11-11 review and B01-B03 corrections](AUDIT-2026-11-11.md).
+Earlier follow-up: [audit remediation from baseline 8f33ca5](AUDIT_REMEDIATION.md).
 
 | ID | Priority | Issue | Implementation | Validation |
 | --- | --- | --- | --- | --- |
@@ -122,3 +123,10 @@ The current notice documents local SoundFont loading and the path, settings,
 editor size and optional macOS file-access bookmark stored in plugin state.
 The source review covered the file picker, loader, state serialization and
 build configuration. This was a source review without a network traffic capture.
+
+## Review of the merged background-loader baseline
+
+The [2026-11-11 review](AUDIT-2026-11-11.md) records B01 (reversed/forgotten
+table sort), B02 (stale public state after GM System On) and B03 (replacement
+fallback leaves an available bank). Targeted fixes and regressions are included
+in the follow-up branch. Platform validation and manual acceptance are separate.
