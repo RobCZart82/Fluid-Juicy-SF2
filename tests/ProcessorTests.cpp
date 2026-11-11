@@ -112,10 +112,10 @@ int main(int argc, char** argv) {
     check(table != nullptr && table->getNumRows() == 2, "editor lists both original fixture presets");
     if (table != nullptr) {
         for (const int column : {1, 2}) {
-            table->getModel()->sortOrderChanged(column, false);
+            table->getTableListBoxModel()->sortOrderChanged(column, false);
             table->selectRow(0);
             check(processor.getCurrentProgram() == 1, "descending preset order puts program 1 first");
-            table->getModel()->sortOrderChanged(column, true);
+            table->getTableListBoxModel()->sortOrderChanged(column, true);
             table->selectRow(0);
             check(processor.getCurrentProgram() == 0, "ascending preset order puts program 0 first");
         }

@@ -282,6 +282,7 @@ void TableComponent::selectedRowsChanged (int row) {
         return;
     }
     int newPreset{rows[row].preset};
+    displayedPreset = newPreset;
     RangedAudioParameter *param{valueTreeState.getParameter("preset")};
     jassert(dynamic_cast<AudioParameterInt*>(param) != nullptr);
     AudioParameterInt* castParam{dynamic_cast<AudioParameterInt*>(param)};
