@@ -38,7 +38,11 @@ Windows packages are unsigned. REAPER and minimum-OS acceptance remain open.
 
 1. Load **Fluid Juicy SF2 (RobCZart82)** in a VST3 host such as REAPER, or open the standalone app.
 2. Drag an `.sf2` or `.sf3` file into the SoundFont picker.
-3. Select a bank and preset, then play using MIDI or the on-screen keyboard.
+3. Alternatively, click **Banks** to list SF2/SF3 files from the default user/shared
+   folders. Use **Add folder...** to remember another location, **Remove folder**
+   to forget it, and **Refresh** to rescan. The list shows parent paths. See
+   [folder locations and access limits](docs/DEVELOPMENT_PLAN.md#soundfont-drop-folders).
+4. Select a bank and preset, then play using MIDI or the on-screen keyboard.
 
 In standalone mode, select your audio device and MIDI input under
 **Options → Audio/MIDI settings**. SoundFonts are not included.

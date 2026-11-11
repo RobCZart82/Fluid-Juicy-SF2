@@ -4,6 +4,7 @@
 
 #include "FilePicker.h"
 #include "Util.h"
+#include "SoundFontFolders.h"
 
 // #ifdef __APPLE__
 //   #include <CoreFoundation/CFURL.h>
@@ -30,9 +31,6 @@ FilePicker::FilePicker(
 , valueTreeState{valueTreeState}
 // , fluidSynthModel{fluidSynthModel}
 // , currentPath{}
-#if JUCE_MAC || JUCE_IOS
-, bookmarkCreationOptions{kCFURLBookmarkCreationWithSecurityScope}
-#endif
 {
     // faster (rounded edges introduce transparency)
     setOpaque (true);
@@ -41,16 +39,18 @@ FilePicker::FilePicker(
     setDisplayedFilePath(valueTreeState.state.getChildWithName("soundFont").getProperty("path", ""));
 
     addAndMakeVisible (fileChooser);
+    addAndMakeVisible(libraryButton);
+    libraryButton.setTooltip("Find SF2/SF3 files in the user and shared SoundFont folders");
+    libraryButton.onClick = [this] { showLibrary(); };
     fileChooser.addListener (this);
     valueTreeState.state.addListener(this);
     triggerAsyncUpdate();
 //    valueTreeState.state.getChildWithName("soundFont").sendPropertyChangeMessage("path");
 
-#if JUCE_MAC || JUCE_IOS
-    bookmarkCreationOptions |= kCFURLBookmarkCreationSecurityScopeAllowOnlyReadAccess;
-#endif
 }
 FilePicker::~FilePicker() {
+    folderChooser.reset();
+    library.cancel();
     cancelPendingUpdate();
     fileChooser.removeListener (this);
     valueTreeState.state.removeListener(this);
@@ -58,7 +58,76 @@ FilePicker::~FilePicker() {
 
 void FilePicker::resized() {
     Rectangle<int> r (getLocalBounds());
+    libraryButton.setBounds(r.removeFromRight(60));
+    r.removeFromRight(4);
     fileChooser.setBounds (r);
+}
+
+void FilePicker::showLibrary() {
+    libraryButton.setEnabled(false);
+    libraryButton.setButtonText("Scanning");
+    library.scan([this](SoundFontLibrary::Result result) {
+        libraryButton.setEnabled(true);
+        libraryButton.setButtonText("Banks");
+        juce::PopupMenu menu;
+        if (result.files.isEmpty()) menu.addItem("No SF2/SF3 files found", false, false, nullptr);
+        int id = 1;
+        for (const auto& file : result.files)
+            menu.addItem(id++, file.getFileName() + " - " + file.getParentDirectory().getFullPathName());
+        if (result.limitReached) menu.addItem("Scan limit reached; use Browse for other files", false, false, nullptr);
+        if (result.error.isNotEmpty()) menu.addItem(result.error, false, false, nullptr);
+        menu.addSeparator();
+        menu.addItem(1001, "Refresh");
+        menu.addItem(1002, "Add folder...");
+        juce::PopupMenu remove;
+        for (int i = 0; i < result.savedFolders.size(); ++i)
+            remove.addItem(2001 + i, result.savedFolders[i].getFullPathName());
+        if (!result.savedFolders.isEmpty()) menu.addSubMenu("Remove folder", remove);
+        const auto folders = SoundFontLibrary::defaultFolders();
+        menu.addSectionHeader("SoundFont folders");
+        for (const auto& folder : folders)
+            menu.addItem(folder.getFullPathName(), false, false, nullptr);
+        juce::Component::SafePointer<FilePicker> safeThis(this);
+        menu.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&libraryButton),
+            [safeThis, result = std::move(result)](int choice) {
+                if (!safeThis) return;
+                if (choice == 1001) safeThis->showLibrary();
+                else if (choice == 1002) safeThis->addLibraryFolder();
+                else if (choice >= 2001 && choice < 2001 + result.savedFolders.size()) {
+                    const auto removed = SoundFontFolders().remove(result.savedFolders[choice - 2001]);
+                    if (removed.failed()) juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
+                        "SoundFont folders", removed.getErrorMessage());
+                    else safeThis->showLibrary();
+                } else if (choice > 0 && choice <= result.files.size()) {
+                    safeThis->fileChooser.setCurrentFile(result.files[choice - 1], true, dontSendNotification);
+                    safeThis->filenameComponentChanged(nullptr);
+                }
+            });
+    });
+}
+
+void FilePicker::addLibraryFolder() {
+    folderChooser = std::make_unique<juce::FileChooser>("Choose a SoundFont folder");
+    juce::Component::SafePointer<FilePicker> safeThis(this);
+    folderChooser->launchAsync(juce::FileBrowserComponent::openMode | juce::FileBrowserComponent::canSelectDirectories,
+        [safeThis](const juce::FileChooser& chooser) {
+            if (!safeThis) return;
+            const auto folder = chooser.getResult();
+            if (!folder.isDirectory()) return;
+            MemoryBlock bookmark;
+#if JUCE_MAC || JUCE_IOS
+            bookmark = JuicyMac::createReadOnlyBookmark(folder);
+            if (bookmark.getSize() == 0) {
+                juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
+                    "SoundFont folders", "Could not save access to this folder. Use Browse to select a bank directly.");
+                return;
+            }
+#endif
+            const auto saved = SoundFontFolders().add(folder, bookmark);
+            if (saved.failed()) juce::AlertWindow::showMessageBoxAsync(juce::AlertWindow::WarningIcon,
+                "SoundFont folders", saved.getErrorMessage());
+            else safeThis->showLibrary();
+        });
 }
 
 /**
@@ -72,16 +141,7 @@ void FilePicker::paint(Graphics& g)
 void FilePicker::filenameComponentChanged (FilenameComponent*) {
     MemoryBlock bookmark;
 #if JUCE_MAC || JUCE_IOS
-    CFPtr<CFStringRef> filePath{fileChooser.getCurrentFile().getFullPathName().toCFString()};
-    CFPtr<CFURLRef> url{CFURLCreateWithFileSystemPath(nullptr, filePath.get(), kCFURLPOSIXPathStyle, false)};
-    CFErrorRef error = nullptr;
-    CFPtr<CFDataRef> data{url ? CFURLCreateBookmarkData(nullptr, url.get(),
-        bookmarkCreationOptions, nullptr, nullptr, &error) : nullptr};
-    CFPtr<CFErrorRef> ownedError{error};
-    if (data) {
-        bookmark.append(CFDataGetBytePtr(data.get()), static_cast<size_t>(CFDataGetLength(data.get())));
-    }
-
+    bookmark = JuicyMac::createReadOnlyBookmark(fileChooser.getCurrentFile());
 #endif
     fluidSynthModel.requestSoundFont(fileChooser.getCurrentFile().getFullPathName(), bookmark);
     // Also refresh after repeated failures whose identical error property may not notify.

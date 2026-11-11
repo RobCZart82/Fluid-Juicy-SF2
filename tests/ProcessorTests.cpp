@@ -4,6 +4,8 @@
 #include <thread>
 #include <functional>
 #include "LoaderTests.h"
+#include "../Source/SoundFontLibrary.h"
+#include "../Source/SoundFontFolders.h"
 
 int main(int argc, char** argv) {
     juce::ScopedJuceInitialiser_GUI initialise;
@@ -13,6 +15,66 @@ int main(int argc, char** argv) {
         if (!ok) ++failures;
     };
     JuicySFAudioProcessor processor;
+    {
+        const auto folder = File::getSpecialLocation(File::tempDirectory)
+            .getNonexistentChildFile("fluid-juicy-library-test", "", false);
+        check(folder.createDirectory().wasOk(), "library fixture directory created");
+        const auto sf2 = folder.getChildFile("Piano.SF2");
+        const auto sf3 = folder.getChildFile("Piano.sF3");
+        check(sf2.replaceWithText("discovery only") && sf3.replaceWithText("discovery only")
+                  && folder.getChildFile("Other.sfz").replaceWithText("unsupported")
+                  && folder.getChildFile("nested").createDirectory().wasOk()
+                  && folder.getChildFile("nested/Hidden.sf2").replaceWithText("nested"),
+              "library fixture files created");
+        const auto found = SoundFontLibrary::scanFolders(
+            {folder, folder, folder.getChildFile("missing")}, [] { return false; });
+        check(found.files.size() == 2 && found.files.contains(sf2) && found.files.contains(sf3),
+              "library discovers case-insensitive SF2/SF3 once without recursing or accepting SFZ");
+        check(SoundFontLibrary::scanFolders({folder}, [] { return true; }).files.isEmpty(),
+              "cancelled library scan returns without enumerating files");
+        bool created = true;
+        for (int i = 0; i < 256; ++i)
+            created = folder.getChildFile("Bank" + String(i) + ".sf2").replaceWithText("discovery only") && created;
+        const auto bounded = SoundFontLibrary::scanFolders({folder}, [] { return false; });
+        check(created && bounded.limitReached && bounded.files.size() == 256,
+              "library limits oversized results instead of building an unbounded menu");
+        const auto settings = folder.getChildFile("folders.xml");
+        SoundFontFolders first(settings), second(settings);
+        const MemoryBlock bookmark("bookmark", 8);
+        check(first.add(folder, bookmark).wasOk()
+                  && second.add(folder.getChildFile("nested"), {}).wasOk(),
+              "independent folder settings instances preserve each other's additions");
+        const auto reopened = SoundFontFolders(settings).read();
+        check(reopened.error.isEmpty() && reopened.folders.size() == 2
+                  && reopened.folders[0].bookmark == bookmark,
+              "remembered folder paths and bookmarks survive reopening settings");
+        const auto a = folder.getChildFile("a"), b = folder.getChildFile("b");
+        check(a.createDirectory().wasOk() && b.createDirectory().wasOk(), "concurrent folder fixtures created");
+        std::atomic<bool> editsOk{true};
+        std::thread addA([&] { if (first.add(a, {}).failed()) editsOk.store(false); });
+        std::thread addB([&] { if (second.add(b, {}).failed()) editsOk.store(false); });
+        addA.join();
+        addB.join();
+        check(editsOk.load() && first.read().folders.size() == 4,
+              "concurrent folder additions do not overwrite one another");
+        check(first.add(folder, {}).wasOk() && first.read().folders.size() == 4,
+              "adding an existing folder updates its access without duplication");
+        check(second.remove(folder.getChildFile("nested")).wasOk()
+                  && first.read().folders.size() == 3 && sf2.existsAsFile(),
+              "removing a remembered folder leaves its files intact");
+        check(settings.replaceWithText("<broken"), "corrupt settings fixture created");
+        check(first.read().error.isNotEmpty() && first.add(a, {}).failed()
+                  && settings.loadFileAsString() == "<broken",
+              "corrupt folder settings are reported and preserved");
+        juce::XmlElement oversized("SoundFontFolders");
+        oversized.setAttribute("version", 1);
+        auto* invalidFolder = oversized.createNewChildElement("Folder");
+        invalidFolder->setAttribute("path", folder.getFullPathName());
+        invalidFolder->setAttribute("bookmark", "999999999999.");
+        check(oversized.writeTo(settings) && first.read().error.isNotEmpty(),
+              "invalid bookmark sizes are rejected before allocation");
+        check(folder.deleteRecursively(), "library fixture directory removed");
+    }
     processor.prepareToPlay(44100.0, 2048);
     std::unique_ptr<AudioProcessorEditor> editor{processor.createEditor()};
     check(editor->getWidth() == 575 && editor->getHeight() == 345,
