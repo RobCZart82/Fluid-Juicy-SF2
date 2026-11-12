@@ -27,9 +27,14 @@ inline int runHostStateTests(const String& path) {
     processor.prepareToPlay(44100, 64);
     processor.addListener(&listener);
     auto& model = processor.getFluidSynthModel();
-    const auto flush = [] {
-        juce::Thread::sleep(60);
-        juce::Timer::callPendingTimersSynchronously();
+    const auto flush = [](const std::function<bool()>& delivered = {}) {
+        // The console harness has no host loop. Pump until expected delivery,
+        // while allowing the JUCE timer thread to run on a busy CI machine.
+        const auto deadline = juce::Time::getMillisecondCounterHiRes() + (delivered ? 1500.0 : 100.0);
+        do {
+            juce::Timer::callPendingTimersSynchronously();
+            juce::Thread::sleep(5);
+        } while (juce::Time::getMillisecondCounterHiRes() < deadline && (!delivered || !delivered()));
     };
     const auto waitForLoad = [&] {
         const auto deadline = juce::Time::getMillisecondCounterHiRes() + 5000.0;
@@ -49,7 +54,7 @@ inline int runHostStateTests(const String& path) {
     MidiBuffer midi;
     processor.processBlock(block, midi);
     check(listener.changes == 0, "loader and audio callbacks do not deliver host state notifications");
-    flush();
+    flush([&] { return listener.changes >= 1; });
     check(listener.changes == 1 && listener.lastPath == path && !listener.wrongThread,
           "committed GUI bank edit notifies on the message thread with the editor closed");
     flush();
@@ -66,7 +71,7 @@ inline int runHostStateTests(const String& path) {
     check(File(path).copyFileTo(moved.getFile()), "host-notification relocation fixture copied");
     model.requestSoundFont(moved.getFile().getFullPathName(), {});
     check(waitForLoad(), "replacement reference prepares");
-    flush();
+    flush([&] { return listener.changes >= 2; });
     check(listener.changes == 2 && listener.lastPath == moved.getFile().getFullPathName(),
           "successful same-preset bank relocation requests host state saving");
     processor.prepareToPlay(48000, 64);
@@ -85,13 +90,13 @@ inline int runHostStateTests(const String& path) {
     check(listener.changes == 2, "ordinary project state recall does not dirty the restored project");
     model.requestSoundFont("", {});
     check(waitForLoad(), "GUI bank clearing completes");
-    flush();
+    flush([&] { return listener.changes >= 3; });
     check(listener.changes == 3 && listener.lastPath.isEmpty(), "clearing a bank requests host state saving once");
     model.requestSoundFont(path, {});
     check(waitForLoad(), "first coalesced edit prepares");
     model.requestSoundFont(moved.getFile().getFullPathName(), {});
     check(waitForLoad(), "latest coalesced edit prepares");
-    flush();
+    flush([&] { return listener.changes >= 4; });
     check(listener.changes == 4 && listener.lastPath == moved.getFile().getFullPathName(),
           "multiple completed GUI edits coalesce to the latest saved reference");
     processor.removeListener(&listener);
@@ -112,7 +117,7 @@ inline int runHostStateTests(const String& path) {
         const auto deadline = juce::Time::getMillisecondCounterHiRes() + 5000.0;
         while (missing.getFluidSynthModel().isLoading() && juce::Time::getMillisecondCounterHiRes() < deadline)
             juce::Thread::sleep(1);
-        flush();
+        flush([&] { return recovered.changes >= 1; });
         check(recovered.changes == 1 && recovered.lastPath == path && !recovered.wrongThread,
               "recovering a missing project bank notifies the host to save the new path");
         missing.removeListener(&recovered);

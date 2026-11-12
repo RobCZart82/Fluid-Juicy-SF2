@@ -9,8 +9,10 @@ import sys
 import tarfile
 import tempfile
 
+ON_WINDOWS = os.name == 'nt'
 
-def extract_sources(archive, root):
+
+def extract_sources(archive, root, *, materialize_links=None):
     """Extract files before links, so no write can traverse an archive symlink."""
     root = Path(root).resolve()
     members = archive.getmembers()
@@ -38,6 +40,7 @@ def extract_sources(archive, root):
             with archive.extractfile(member) as source, destination.open('xb') as target:
                 shutil.copyfileobj(source, target)
             destination.chmod(member.mode & 0o777)
+    regular_files = {(root / member.name).resolve() for member in members if member.isfile()}
     # The two FluidSynth Unicode aliases in our pinned export are legitimate
     # relative links to regular files. Link chains/directories are unnecessary.
     for member in members:
@@ -47,13 +50,26 @@ def extract_sources(archive, root):
         name = Path(member.linkname)
         target = destination.parent / name if member.issym() else root / name
         if (name.is_absolute() or not target.resolve().is_relative_to(root)
+                or target.resolve() not in regular_files
                 or target.is_symlink() or not target.is_file()):
             raise RuntimeError(f'Unsafe source bundle link: {member.name}')
         destination.parent.mkdir(parents=True, exist_ok=True)
-        if member.issym():
-            destination.symlink_to(member.linkname)
-        else:
-            os.link(target, destination)
+        copy_link = materialize_links is True
+        if not copy_link:
+            try:
+                if member.issym():
+                    destination.symlink_to(member.linkname)
+                else:
+                    os.link(target, destination)
+            except OSError as error:
+                if (materialize_links is False or not ON_WINDOWS
+                        or getattr(error, 'winerror', None) not in (5, 1314)):
+                    raise
+                copy_link = True
+        if copy_link:
+            with target.open('rb') as source, destination.open('xb') as output:
+                shutil.copyfileobj(source, output)
+            shutil.copymode(target, destination)
 
 
 def main():

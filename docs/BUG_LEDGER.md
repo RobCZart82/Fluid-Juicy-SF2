@@ -131,3 +131,9 @@ The [2026-11-11 review](AUDIT-2026-11-11.md) records B01 (reversed/forgotten
 table sort), B02 (stale public state after GM System On) and B03 (replacement
 fallback leaves an available bank) and B04 (stale manual-selection cache). Targeted fixes and regressions are included
 in the follow-up branch. Platform validation and manual acceptance are separate.
+
+## Review corrections, 2026-11-12
+
+[D01 and D02](REVIEW_FIXES_2026-11-12.md) fix Reset changing the preset during
+a GUI crossfade and Windows source tests requiring symlink privileges.
+Implementation and targeted regressions are included in the correction branch.

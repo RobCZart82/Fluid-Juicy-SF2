@@ -80,7 +80,11 @@ def archive_sources(target, sources, source_commit):
                     if data is not None:
                         files[entry.name] = {'sha256': hashlib.sha256(data).hexdigest()}
                     elif entry.issym():
-                        files[entry.name] = {'symlink': entry.linkname}
+                        # Windows can safely materialize a file alias without
+                        # symlink privileges; retain a digest to verify its bytes.
+                        linked_data = archive.extractfile(entry).read()
+                        files[entry.name] = {'symlink': entry.linkname,
+                                             'sha256': hashlib.sha256(linked_data).hexdigest()}
                     destination.addfile(member, io.BytesIO(data) if data is not None else None)
         data = json.dumps(manifest, indent=2).encode('utf-8')
         member = tarfile.TarInfo('source-manifest.json')
