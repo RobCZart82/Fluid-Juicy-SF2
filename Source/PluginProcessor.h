@@ -13,6 +13,7 @@
 
 #include "JuceHeader.h"
 #include "FluidSynthModel.h"
+#include "SoundFontLibrary.h"
 #include <list>
 #include <atomic>
 #include "GuiConstants.h"
@@ -66,6 +67,7 @@ public:
 
     FluidSynthModel& getFluidSynthModel();
 
+    SoundFontLibrary soundFontLibrary;
     MidiKeyboardState keyboardState;
     std::pair<int, int> getEditorSize() const;
     void setEditorSize(int width, int height);

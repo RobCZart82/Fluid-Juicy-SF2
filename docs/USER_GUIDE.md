@@ -34,6 +34,9 @@ Use **Add folder...** for another location, **Remove folder** to forget it, and
 **Refresh** after copying files. Removing a location does not delete any files.
 Scanning is nonrecursive and bounded; Browse and drag-and-drop remain available
 for other banks. Symbolic links are skipped. If settings are busy, retry.
+Closing the editor or refreshing cancels delivery of an obsolete scan without
+waiting for it. A blocked filesystem call can delay the next scan; removing the
+entire plugin still waits for its worker to finish.
 On macOS the native chooser saves a read-only access bookmark. If access expires,
 select the file or folder again. Cloud-only files may need downloading first.
 

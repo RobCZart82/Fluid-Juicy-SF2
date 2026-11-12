@@ -26,6 +26,82 @@ inline int runReviewFixTests(const String& fixture) {
     };
     {
         JuicySFAudioProcessor target;
+        target.prepareToPlay(44100, 256);
+        auto& model = target.getFluidSynthModel();
+        check(model.loadSoundFont(fixture, {}), "pressure fixture loads");
+        target.prepareToPlay(44100, 256);
+        auto* synth = model.getActiveSynthForTests();
+        auto* mod = new_fluid_mod();
+        fluid_mod_set_source1(mod, FLUID_MOD_CHANNELPRESSURE,
+            FLUID_MOD_LINEAR | FLUID_MOD_UNIPOLAR | FLUID_MOD_POSITIVE);
+        fluid_mod_set_source2(mod, 0, 0);
+        fluid_mod_set_dest(mod, GEN_ATTENUATION);
+        fluid_mod_set_amount(mod, 960);
+        fluid_synth_add_default_mod(synth, mod, FLUID_SYNTH_OVERWRITE);
+        delete_fluid_mod(mod);
+        AudioBuffer<float> block(2, 256);
+        MidiBuffer midi;
+        const auto sound = [&](bool pressure) {
+            if (pressure) midi.addEvent(MidiMessage::channelPressureChange(1, 100), 0);
+            midi.addEvent(MidiMessage::noteOn(1, 69, static_cast<juce::uint8>(100)), 0);
+            float peak = 0;
+            for (int i = 0; i < 16; ++i) {
+                target.processBlock(block, midi);
+                peak = juce::jmax(peak, block.getMagnitude(0, 256));
+            }
+            return peak;
+        };
+        sound(true);
+        target.reset();
+        check(model.getPressureForTests() == 100 && sound(false) < 0.002f,
+              "reset preserves actual channel-pressure modulation without a new MIDI event");
+        target.prepareToPlay(48000, 256);
+        check(model.getPressureForTests() == 100, "sample-rate rebuild preserves pressure");
+        model.requestSoundFont(fixture, {});
+        check(wait([&] { return !model.isLoading(); }), "pressure bank replacement prepares");
+        target.processBlock(block, midi);
+        check(model.getPressureForTests() == 100, "bank replacement preserves pressure");
+        midi.addEvent(MidiMessage::controllerEvent(1, 121, 0), 0);
+        target.processBlock(block, midi);
+        target.reset();
+        check(model.getPressureForTests() == 0, "CC121 clears pressure through a later reset");
+        midi.addEvent(MidiMessage::channelPressureChange(1, 100), 0);
+        target.processBlock(block, midi);
+        const uint8_t gm[] = {0x7e, 0x7f, 0x09, 0x01};
+        midi.addEvent(MidiMessage::createSysExMessage(gm, sizeof(gm)), 0);
+        target.processBlock(block, midi);
+        target.reset();
+        check(model.getPressureForTests() == 0, "GM reset clears remembered pressure");
+    }
+    {
+        JuicySFAudioProcessor target;
+        juce::WaitableEvent started, release;
+        std::atomic<bool> finished{false};
+        bool staleCallback = false;
+        std::unique_ptr<AudioProcessorEditor> editor{target.createEditor()};
+        target.soundFontLibrary.scan([&](auto) { staleCallback = true; }, [&](const auto&) {
+            started.signal();
+            release.wait(5000); // Simulates an OS call which ignores cancellation.
+            finished.store(true);
+            return juce::Result::ok();
+        });
+        check(started.wait(2000), "uninterruptible scan fixture starts");
+        const auto start = juce::Time::getMillisecondCounterHiRes();
+        editor.reset();
+        check(!finished.load() && juce::Time::getMillisecondCounterHiRes() - start < 1000,
+              "closing an editor never joins its blocked folder scan");
+        bool latestCallback = false;
+        target.soundFontLibrary.scan([&](auto) { latestCallback = true; });
+        check(!finished.load(), "refresh queues without waiting for the obsolete scan");
+        release.signal();
+        const auto deadline = juce::Time::getMillisecondCounterHiRes() + 5000;
+        while (!latestCallback && juce::Time::getMillisecondCounterHiRes() < deadline)
+            { target.soundFontLibrary.dispatchForTests(); juce::Thread::sleep(5); }
+        check(latestCallback && !staleCallback, "only the latest scan delivers a GUI callback");
+        target.soundFontLibrary.cancel();
+    }
+    {
+        JuicySFAudioProcessor target;
         target.prepareToPlay(44100, 64);
         auto& model = target.getFluidSynthModel();
         check(model.loadSoundFont(fixture, {}), "restore-during-fade fixture loads");
