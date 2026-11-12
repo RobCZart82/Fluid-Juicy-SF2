@@ -21,7 +21,7 @@ class FilePicker: public Component,
 public:
     FilePicker(
         AudioProcessorValueTreeState& valueTreeState,
-        FluidSynthModel& fluidSynthModel
+        FluidSynthModel& fluidSynthModel, SoundFontLibrary& library
     );
     ~FilePicker();
 
@@ -53,7 +53,7 @@ private:
     void locateSoundFont();
     void loadSelectedFile(const File&);
     std::unique_ptr<juce::FileChooser> relocationChooser;
-    SoundFontLibrary library;
+    SoundFontLibrary& library;
     void showLibrary(SoundFontLibrary::Edit edit = {});
     void addLibraryFolder();
     std::unique_ptr<juce::FileChooser> folderChooser;

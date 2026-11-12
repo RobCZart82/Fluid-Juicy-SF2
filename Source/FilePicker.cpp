@@ -16,7 +16,7 @@ using JuicyMac::CFPtr;
 
 FilePicker::FilePicker(
     AudioProcessorValueTreeState& valueTreeState,
-    FluidSynthModel& model
+    FluidSynthModel& model, SoundFontLibrary& scanner
 )
 : fileChooser{
     "File",
@@ -27,6 +27,7 @@ FilePicker::FilePicker(
     "*.sf2;*.sf3",
     String(),
     "Choose a Soundfont file to load into the synthesizer"}
+, library{scanner}
 , fluidSynthModel{model}
 , valueTreeState{valueTreeState}
 // , fluidSynthModel{fluidSynthModel}

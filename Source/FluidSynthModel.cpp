@@ -643,6 +643,7 @@ FluidSynthModel::ChannelSnapshot FluidSynthModel::captureChannel(Engine& engine)
     auto& synth = engine.synth;
     constexpr int channel = 0;
     ChannelSnapshot state;
+    state.pressure = engine.pressure;
     for (int cc = 0; cc < 120; ++cc)
         fluid_synth_get_cc(synth.get(), channel, cc, &state.controllers[static_cast<size_t>(cc)]);
     for (int gen = 0; gen < GEN_LAST; ++gen)
@@ -667,6 +668,8 @@ void FluidSynthModel::restoreChannel(Engine& engine, const ChannelSnapshot& stat
         fluid_synth_set_gen(synth.get(), channel, gen, state.generators[static_cast<size_t>(gen)]);
     fluid_synth_pitch_wheel_sens(synth.get(), channel, state.pitchSensitivity);
     fluid_synth_pitch_bend(synth.get(), channel, state.pitch);
+    engine.pressure = state.pressure;
+    fluid_synth_channel_pressure(synth.get(), channel, state.pressure);
     // Leave data entry deselected. Complete tuning/SysEx and in-progress RPN
     // transactions need the future channel-state model; do not invent them here.
     fluid_synth_cc(synth.get(), channel, 101, 127);
@@ -762,6 +765,7 @@ void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiM
                 m.getControllerValue());
 
             const int cc = m.getControllerNumber();
+            if (cc == 121) engine.pressure = 0;
             if (controllerToParam.find(static_cast<fluid_midi_control_change>(cc)) != controllerToParam.end()) {
                 requestedControllers[static_cast<size_t>(cc)].store(m.getControllerValue());
                 engine.appliedControllers[static_cast<size_t>(cc)] = m.getControllerValue();
@@ -792,6 +796,7 @@ void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiM
                 channel,
                 m.getPitchWheelValue());
         } else if (m.isChannelPressure()) {
+            engine.pressure = m.getChannelPressureValue();
             fluid_synth_channel_pressure(
                 synth.get(),
                 channel,
@@ -818,6 +823,14 @@ void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiM
                 &handled,
                 static_cast<int>(false));
             if (result == FLUID_OK && handled) {
+                const auto* data = m.getSysExData();
+                const auto size = m.getSysExDataSize();
+                const bool gmReset = size == 4 && data[0] == 0x7e && data[2] == 0x09
+                    && data[3] >= 1 && data[3] <= 3;
+                const bool gsReset = size == 9 && data[0] == 0x41 && data[2] == 0x42
+                    && data[3] == 0x12 && data[4] == 0x40 && data[5] == 0
+                    && data[6] == 0x7f && data[7] == 0;
+                if (gmReset || gsReset) engine.pressure = 0;
                 // A GM/GS reset can change the synth without parameter callbacks.
                 // Publish its actual controls before resolving its program so
                 // applyControls cannot reapply values from before the reset.

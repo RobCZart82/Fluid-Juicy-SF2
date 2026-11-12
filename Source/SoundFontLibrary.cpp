@@ -29,7 +29,12 @@ bool isLibraryLink(const juce::File& file)
 SoundFontLibrary::SoundFontLibrary(juce::File settings)
     : Thread("SoundFont library scan"),
       settingsFile(settings == juce::File() ? SoundFontFolders::defaultSettingsFile() : settings) {}
-SoundFontLibrary::~SoundFontLibrary() { cancel(); }
+SoundFontLibrary::~SoundFontLibrary() {
+    cancel();
+    signalThreadShouldExit();
+    notify();
+    stopThread(-1); // Processor teardown joins: never leave plugin code detached.
+}
 
 juce::Array<juce::File> SoundFontLibrary::defaultFolders()
 {
@@ -78,37 +83,62 @@ void SoundFontLibrary::scan(std::function<void(Result)> callback, Edit edit)
 {
     cancel();
     onComplete = std::move(callback);
-    pendingEdit = std::move(edit);
-    if (!startThread()) {
+    {
+        const juce::ScopedLock lock(resultLock);
+        queued = Job{generation.load(), std::move(edit)};
+    }
+    if (!workerStarted) workerStarted = startThread();
+    if (!workerStarted) {
+        const juce::ScopedLock lock(resultLock);
+        queued.reset();
         result.error = "Could not start the SoundFont folder scan.";
+        resultGeneration = generation.load();
+        resultReady = true;
         triggerAsyncUpdate();
     }
+    notify();
 }
 
 void SoundFontLibrary::cancel()
 {
-    signalThreadShouldExit();
-    stopThread(-1);
+    ++generation;
     cancelPendingUpdate();
     onComplete = {};
-    pendingEdit = {};
     const juce::ScopedLock lock(resultLock);
+    queued.reset();
     result = {};
+    resultReady = false;
 }
 
 void SoundFontLibrary::run()
 {
+    while (!threadShouldExit()) {
+        std::optional<Job> job;
+        {
+            const juce::ScopedLock lock(resultLock);
+            job = std::move(queued);
+            queued.reset();
+        }
+        if (!job) { wait(100); continue; }
+        performScan(*job);
+    }
+}
+
+void SoundFontLibrary::performScan(const Job& job)
+{
     auto folders = defaultFolders();
-    const std::function<bool()> cancelled = [this] { return threadShouldExit(); };
+    const std::function<bool()> cancelled = [this, id = job.generation] {
+        return threadShouldExit() || generation.load() != id;
+    };
     Result savedState;
-    if (pendingEdit) {
-        const auto edited = pendingEdit(cancelled);
+    if (job.edit) {
+        const auto edited = job.edit(cancelled);
         if (edited.failed()) savedState.error = edited.getErrorMessage();
     }
-    if (threadShouldExit()) return;
+    if (cancelled()) return;
     const auto saved = SoundFontFolders(settingsFile).read(cancelled);
     if (saved.error.isNotEmpty()) savedState.error = saved.error;
-    if (threadShouldExit()) return;
+    if (cancelled()) return;
     for (const auto& folder : saved.folders) {
         savedState.savedFolders.add(folder.path);
         auto path = folder.path;
@@ -131,15 +161,18 @@ void SoundFontLibrary::run()
 #endif
         folders.addIfNotAlreadyThere(path);
     }
-    auto found = scanFolders(folders, [this] { return threadShouldExit(); });
+    auto found = scanFolders(folders, cancelled);
     found.savedFolders = std::move(savedState.savedFolders);
     found.error = std::move(savedState.error);
 #if JUCE_MAC || JUCE_IOS
     found.access = std::move(savedState.access);
 #endif
-    if (threadShouldExit()) return;
+    if (cancelled()) return;
     {
         const juce::ScopedLock lock(resultLock);
+        if (cancelled()) return;
+        resultGeneration = job.generation;
+        resultReady = true;
         result = std::move(found);
     }
     triggerAsyncUpdate();
@@ -147,11 +180,13 @@ void SoundFontLibrary::run()
 
 void SoundFontLibrary::handleAsyncUpdate()
 {
-    waitForThreadToExit(-1);
     Result found;
     {
         const juce::ScopedLock lock(resultLock);
+        if (!resultReady || resultGeneration != generation.load()) return;
+        resultReady = false;
         found = std::move(result);
     }
-    if (onComplete) onComplete(std::move(found));
+    auto callback = onComplete;
+    if (callback) callback(std::move(found));
 }

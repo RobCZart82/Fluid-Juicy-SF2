@@ -21,7 +21,7 @@ JuicySFAudioProcessorEditor::JuicySFAudioProcessorEditor(
 , valueTreeState{valueTreeState}
 , midiKeyboard{p.keyboardState, SurjectiveMidiKeyboardComponent::horizontalKeyboard}
 , tablesComponent{valueTreeState}
-, filePicker{valueTreeState, p.getFluidSynthModel()}
+, filePicker{valueTreeState, p.getFluidSynthModel(), p.soundFontLibrary}
 , slidersComponent{valueTreeState, p.getFluidSynthModel()}
 {
     filePicker.onLayoutChanged = [this] { resized(); };

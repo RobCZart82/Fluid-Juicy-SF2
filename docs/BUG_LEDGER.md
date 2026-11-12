@@ -137,3 +137,13 @@ in the follow-up branch. Platform validation and manual acceptance are separate.
 [D01 and D02](REVIEW_FIXES_2026-11-12.md) fix Reset changing the preset during
 a GUI crossfade and Windows source tests requiring symlink privileges.
 Implementation and targeted regressions are included in the correction branch.
+
+
+## Aftertouch and scan lifetime follow-up, 2026-11-12
+
+[E01 and R01](REVIEW_FIXES_2026-11-12.md#e01-preserve-channel-pressure-across-lifecycle-operations)
+preserve live channel pressure during engine lifecycle changes and move library
+scan ownership to the processor. Editor close/refresh no longer join filesystem
+work. Processor teardown still waits for its worker; no detached threads are used.
+Native Windows regression compilation and 4/4 CTest suites passed; platform and
+manual acceptance evidence remains separate.

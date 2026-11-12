@@ -49,6 +49,8 @@ public:
     void changeProgramName(int, const String&) {}
     unsigned int getBankProgram() const { return selection.load(); }
 #if JUICY_ENABLE_TEST_HOOKS
+    fluid_synth_t* getActiveSynthForTests() { return active->synth.get(); }
+    int getPressureForTests() const { return active->pressure; }
     void setLoadDelayForTests(int ms) { loadDelay.store(ms); }
     void pauseLoadsForTests(bool pause) { loadPaused.store(pause); requestReady.notify_all(); }
     unsigned int getUiViolationsForTests() const { return uiViolations.load(); }
@@ -72,6 +74,7 @@ private:
 #endif
         unique_ptr<fluid_settings_t, decltype(&delete_fluid_settings)> settings{nullptr, delete_fluid_settings};
         unique_ptr<fluid_synth_t, decltype(&delete_fluid_synth)> synth{nullptr, delete_fluid_synth};
+        int pressure = 0;
         int font = -1;
         float rate = 44100;
         uint64_t request = 0;
@@ -93,7 +96,7 @@ private:
     struct ChannelSnapshot {
         array<int, 120> controllers{};
         array<float, GEN_LAST> generators{};
-        int pitch = 8192, pitchSensitivity = 2;
+        int pitch = 8192, pitchSensitivity = 2, pressure = 0;
     };
     unique_ptr<Engine> makeEngine(float);
     unique_ptr<Engine> prepareFont(const Request&);
