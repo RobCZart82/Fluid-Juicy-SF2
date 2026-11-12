@@ -37,3 +37,8 @@ Platform build/package evidence is recorded on the implementing PR.
 
 A full export of the actual pinned dependency sources also passed Windows
 extraction and Git-free manifest verification locally.
+
+The console host-notification harness now pumps JUCE timers until expected
+delivery with a 1.5-second bound. Quiet checks pump for 100 ms. Exact event
+counts, message-thread delivery and persisted paths remain asserted. This fixes
+the fixed-60-ms timing failure observed on a busy Windows CI runner.
