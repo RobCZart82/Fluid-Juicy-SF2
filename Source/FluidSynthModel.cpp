@@ -609,7 +609,9 @@ void FluidSynthModel::setSampleRate(float rate) {
 }
 void FluidSynthModel::resetPlayback() {
     if (active) resetEngine(*active);
-    if (fading) resetEngine(*fading);
+    // The old bank must not resolve the new bank's selection during reset.
+    retireEngine(fading.release());
+    fadeRemaining = 0;
 }
 void FluidSynthModel::blendRetiringEngine(AudioBuffer<float>& buffer, int start, int count, bool silent) {
     if (!fading) return;

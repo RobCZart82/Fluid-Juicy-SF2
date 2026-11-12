@@ -1,5 +1,8 @@
 """Source packaging completes Git output before reading tar members."""
 import io
+import hashlib
+import json
+from contextlib import contextmanager
 from pathlib import Path
 import subprocess
 import sys
@@ -9,10 +12,47 @@ import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'scripts'))
-from package_desktop import git_source_archive
+from package_desktop import git_source_archive, archive_sources
+from check_source_bundle import extract_sources
+import build
 
 
 class SourcePackaging(unittest.TestCase):
+    def test_exported_alias_hash_verifies_after_portable_extraction(self):
+        @contextmanager
+        def fixture_archive(_repository, _revision):
+            data = io.BytesIO()
+            with tarfile.open(fileobj=data, mode='w') as archive:
+                source = tarfile.TarInfo('source.txt')
+                source.size = 7
+                archive.addfile(source, io.BytesIO(b'fixture'))
+                alias = tarfile.TarInfo('alias.txt')
+                alias.type = tarfile.SYMTYPE
+                alias.linkname = 'source.txt'
+                archive.addfile(alias)
+            data.seek(0)
+            with tarfile.open(fileobj=data, mode='r:') as archive:
+                yield archive
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            revision = 'a' * 40
+            target = root / 'sources.tar.gz'
+            with patch('package_desktop.PINS', {}), patch('package_desktop.ROOT', root / 'plugin'), \
+                 patch('package_desktop.subprocess.check_output', return_value=revision), \
+                 patch('package_desktop.clean_revision', return_value=revision), \
+                 patch('package_desktop.git_source_archive', side_effect=fixture_archive):
+                archive_sources(target, root / 'dependencies', revision)
+            extracted = root / 'extracted'
+            extracted.mkdir()
+            with tarfile.open(target, 'r:gz') as archive:
+                extract_sources(archive, extracted, materialize_links=True)
+            manifest = json.loads((extracted / 'source-manifest.json').read_text())
+            alias = manifest['repositories']['fluid-juicy-sf2']['files']['alias.txt']
+            self.assertEqual(alias['sha256'], hashlib.sha256(b'fixture').hexdigest())
+            with patch.object(build, 'ROOT', extracted / 'fluid-juicy-sf2'):
+                self.assertEqual(build.exported_revision(build.ROOT), revision)
+
     def test_git_archive_content_is_preserved(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

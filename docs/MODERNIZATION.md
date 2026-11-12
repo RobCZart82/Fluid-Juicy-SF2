@@ -119,3 +119,8 @@ filters. It rejects absolute/parent paths, duplicate files and special devices,
 writes regular files before links, and accepts only in-root links to regular
 files. Directory links and link chains are rejected. Legitimate FluidSynth
 Unicode filename aliases and executable mode bits are retained.
+
+Source bundles exported after the 2026-11-12 corrections include content hashes
+for file aliases. The Windows verification/extraction tool copies these aliases
+without requiring symlink privileges and validates their bytes. Older exported
+manifests still require their original native links. See [D02](REVIEW_FIXES_2026-11-12.md).

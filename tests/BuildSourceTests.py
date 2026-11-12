@@ -52,6 +52,20 @@ class ExportedSources(unittest.TestCase):
         (self.plugin / 'source.txt').unlink()
         self.assertIsNone(build.clean_revision(self.plugin))
 
+    def test_materialized_alias_requires_matching_recorded_bytes(self):
+        alias = self.plugin / 'alias.txt'
+        alias.write_bytes(b'original source\n')
+        entry = {'symlink': 'source.txt', 'sha256': hashlib.sha256(alias.read_bytes()).hexdigest()}
+        self.manifest['repositories']['fluid-juicy-sf2']['files']['alias.txt'] = entry
+        self.saveManifest()
+        self.assertEqual(build.clean_revision(self.plugin), self.revision)
+        alias.write_bytes(b'changed alias')
+        self.assertIsNone(build.clean_revision(self.plugin))
+        entry.pop('sha256')
+        alias.write_bytes(b'original source\n')
+        self.saveManifest()
+        self.assertIsNone(build.clean_revision(self.plugin))
+
     def test_manifest_path_cannot_escape_repository(self):
         self.manifest['repositories']['fluid-juicy-sf2']['files']['../outside'] = {'sha256': '0' * 64}
         self.saveManifest()

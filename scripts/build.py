@@ -68,10 +68,11 @@ def exported_revision(repository):
         # The manifest is a path/hash index, never permission to escape the bundle.
         if Path(relative).is_absolute() or '..' in Path(relative).parts:
             raise RuntimeError('Unsafe path in source manifest')
-        if 'symlink' in expected:
-            if not path.is_symlink() or os.readlink(path) != expected['symlink']:
+        if 'symlink' in expected and path.is_symlink():
+            if os.readlink(path) != expected['symlink']:
                 return None
-        elif not path.is_file() or path.is_symlink():
+            continue
+        if not path.is_file() or path.is_symlink() or 'sha256' not in expected:
             return None
         else:
             digest = hashlib.sha256()
