@@ -677,14 +677,19 @@ void FluidSynthModel::resetEngine(Engine& engine) {
     auto& synth = engine.synth;
     if (!synth) return;
     const auto savedChannel = captureChannel(engine);
+    int font = -1, bank = 0, program = 0;
+    const bool hadPreset = engine.font >= 0
+        && fluid_synth_get_program(synth.get(), 0, &font, &bank, &program) == FLUID_OK;
     fluid_synth_system_reset(synth.get());
     // Voice-off ramps may feed the effects during the first render quantum.
     // Finish that ramp (plus any cached fragment), then clear the effects again.
     fluid_synth_process(synth.get(), 128, 0, nullptr, 0, nullptr);
     fluid_synth_system_reset(synth.get());
     restoreChannel(engine, savedChannel, true);
+    if (hadPreset) fluid_synth_program_select(synth.get(), 0, font, bank, program);
     engine.lastSelection = ~0u;
-    applyControls(engine);
+    // Control intent may already refer to a pending replacement. Reset this
+    // engine's own preset without publishing a fallback into the shared intent.
     // Drain the bounded reset/mixer pipeline without exposing pre-reset audio.
     // No allocation, bank I/O or synth reconstruction; output mixing is skipped.
     fluid_synth_process(synth.get(), 256, 0, nullptr, 0, nullptr);

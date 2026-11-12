@@ -10,8 +10,9 @@ overwrote the shared selection. The baseline probe changed bank 5/program 1
 to 0/0 during reset and then to 5/0 at the next audio block.
 
 Reset now retires the fading engine through the existing off-render reclamation
-queue and clears the fade counter. Only the active engine resolves controls.
-The regression covers reset and releaseResources during a bank-layout change,
+queue and clears the fade counter. Reset restores the active synth preset locally and leaves pending control
+intent for the next audio block. The regression covers reset and releaseResources
+before engine adoption and during a bank-layout crossfade,
 checks the selection before and after the next block, and rejects render-stack
 engine reclamation.
 
@@ -33,3 +34,6 @@ copied-alias tampering and export/extract/manifest verification together.
 All three Python suites passed locally (7, 9 and 4 tests).
 The native Windows regression target compiled and all four CTest suites passed.
 Platform build/package evidence is recorded on the implementing PR.
+
+A full export of the actual pinned dependency sources also passed Windows
+extraction and Git-free manifest verification locally.

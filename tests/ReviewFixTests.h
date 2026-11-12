@@ -46,20 +46,19 @@ inline int runReviewFixTests(const String& fixture) {
         }
         check(model.getAudioReclaimsForTests() == 0,
               "rapid host restores defer all engine destruction off the render stack");
-        for (const bool release : {false, true}) {
+        for (const int scenario : {0, 1, 2, 3}) {
             check(model.loadSoundFont(fixture, {}), "reset crossfade starts with the original bank");
             target.prepareToPlay(44100, 64);
             model.requestSoundFont(shifted, {});
             check(wait([&] { return !model.isLoading(); }), "reset crossfade replacement is prepared");
-            target.processBlock(block, midi);
             target.setCurrentProgram(1);
-            target.processBlock(block, midi);
+            if (scenario % 2 != 0) target.processBlock(block, midi);
             const auto selected = model.getBankProgram();
             check(selected == ((5u << 16) | 1u), "replacement program 1 is selected before reset");
-            if (release) target.releaseResources();
+            if (scenario >= 2) target.releaseResources();
             else target.reset();
             check(model.getBankProgram() == selected,
-                  "reset and release preserve the new bank and program during crossfade");
+                  "reset and release preserve pending and crossfading bank selections");
             target.processBlock(block, midi);
             check(model.getBankProgram() == selected && model.getAudioReclaimsForTests() == 0,
                   "playback after reset retains the preset without reclaiming an engine on render");
