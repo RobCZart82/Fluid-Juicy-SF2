@@ -698,6 +698,39 @@ void FluidSynthModel::resetEngine(Engine& engine) {
     fluid_synth_process(synth.get(), 256, 0, nullptr, 0, nullptr);
 }
 
+void FluidSynthModel::handleSysEx(Engine& engine, const unsigned char* data, int size) {
+    auto& synth = engine.synth;
+    constexpr int channel = 0;
+    int handled = 0;
+    const int result = fluid_synth_sysex(
+        synth.get(),
+        reinterpret_cast<const char*>(data),
+        size,
+        nullptr, // no response pointer because we have no interest in handling response currently
+        nullptr, // no response_len pointer because we have no interest in handling response currently
+        &handled,
+        static_cast<int>(false));
+    if (result == FLUID_OK && handled) {
+        const bool gmReset = size == 4 && data[0] == 0x7e && data[2] == 0x09
+            && data[3] >= 1 && data[3] <= 3;
+        const bool gsReset = size == 9 && data[0] == 0x41 && data[2] == 0x42
+            && data[3] == 0x12 && data[4] == 0x40 && data[5] == 0
+            && data[6] == 0x7f && data[7] == 0;
+        if (gmReset || gsReset) engine.pressure = 0;
+        // A GM/GS reset can change the synth without parameter callbacks.
+        // Publish its actual controls before resolving its program so
+        // applyControls cannot reapply values from before the reset.
+        for (const auto& entry : controllerToParam) {
+            int value = 0;
+            fluid_synth_get_cc(synth.get(), channel, static_cast<int>(entry.first), &value);
+            requestedControllers[static_cast<size_t>(entry.first)].store(value);
+            engine.appliedControllers[static_cast<size_t>(entry.first)] = value;
+            *static_cast<AudioParameterInt*>(valueTreeState.getParameter(entry.second)) = value;
+        }
+        publishCurrentSelection(engine);
+    }
+}
+
 void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiMessages) {
     const juce::ScopedValueSetter<FluidSynthModel*> renderGuard(renderingModel, this);
     adoptPending();
@@ -741,8 +774,15 @@ void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiM
         rendered = end;
     };
     for (const auto metadata : midiMessages) {
-        const auto m = metadata.getMessage();
         renderUntil(juce::jlimit(rendered, buffer.getNumSamples(), metadata.samplePosition));
+        if (metadata.numBytes > 0 && metadata.data[0] == 0xf0) {
+            // Borrow the host buffer for this synchronous call. Constructing a
+            // MidiMessage here copies long SysEx data using heap allocation.
+            if (metadata.numBytes >= 2 && metadata.data[metadata.numBytes - 1] == 0xf7)
+                handleSysEx(engine, metadata.data + 1, metadata.numBytes - 2);
+            continue; // Ignore incomplete SysEx rather than stripping a data byte.
+        }
+        const auto m = metadata.getMessage();
         DEBUG_PRINT(m.getDescription());
         
         if (m.isNoteOn()) {
@@ -807,42 +847,7 @@ void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiM
                 channel,
                 m.getNoteNumber(),
                 m.getAfterTouchValue());
-//        } else if (m.isMetaEvent()) {
-//            fluid_midi_event_t *midi_event{new_fluid_midi_event()};
-//            fluid_midi_event_set_type(midi_event, static_cast<int>(MIDI_SYSTEM_RESET));
-//            fluid_synth_handle_midi_event(synth.get(), midi_event);
-//            delete_fluid_midi_event(midi_event);
-        } else if (m.isSysEx()) {
-            int handled = 0;
-            const int result = fluid_synth_sysex(
-                synth.get(),
-                reinterpret_cast<const char*>(m.getSysExData()),
-                m.getSysExDataSize(),
-                nullptr, // no response pointer because we have no interest in handling response currently
-                nullptr, // no response_len pointer because we have no interest in handling response currently
-                &handled,
-                static_cast<int>(false));
-            if (result == FLUID_OK && handled) {
-                const auto* data = m.getSysExData();
-                const auto size = m.getSysExDataSize();
-                const bool gmReset = size == 4 && data[0] == 0x7e && data[2] == 0x09
-                    && data[3] >= 1 && data[3] <= 3;
-                const bool gsReset = size == 9 && data[0] == 0x41 && data[2] == 0x42
-                    && data[3] == 0x12 && data[4] == 0x40 && data[5] == 0
-                    && data[6] == 0x7f && data[7] == 0;
-                if (gmReset || gsReset) engine.pressure = 0;
-                // A GM/GS reset can change the synth without parameter callbacks.
-                // Publish its actual controls before resolving its program so
-                // applyControls cannot reapply values from before the reset.
-                for (const auto& entry : controllerToParam) {
-                    int value = 0;
-                    fluid_synth_get_cc(synth.get(), channel, static_cast<int>(entry.first), &value);
-                    requestedControllers[static_cast<size_t>(entry.first)].store(value);
-                    engine.appliedControllers[static_cast<size_t>(entry.first)] = value;
-                    *static_cast<AudioParameterInt*>(valueTreeState.getParameter(entry.second)) = value;
-                }
-                publishCurrentSelection(engine);
-            }
+
         }
     }
 

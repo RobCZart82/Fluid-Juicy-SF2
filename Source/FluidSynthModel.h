@@ -108,6 +108,7 @@ private:
     void adoptPending();
     void adoptWhileStopped();
     void applyControls(Engine&);
+    void handleSysEx(Engine&, const unsigned char*, int);
     void blendRetiringEngine(AudioBuffer<float>&, int start, int count, bool silent);
     void publishCurrentSelection(Engine&);
     void publishParameters();

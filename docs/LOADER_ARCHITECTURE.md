@@ -59,6 +59,15 @@ FluidSynth; this is not a proof of worst-case real-time scheduling for all banks
 The control transfer itself uses fixed storage and supported 64-bit lock-free
 atomics, with no host-block-sized allocation.
 
+Complete SysEx events are passed synchronously from the existing MidiBuffer
+storage to FluidSynth, excluding F0/F7 framing bytes. No MidiMessage copy or
+plugin-owned payload allocation is made on this path, and the borrowed pointer
+is never retained. An unterminated SysEx event is ignored; fragmented SysEx is
+not assembled across events. Short MIDI events retain the existing dispatch.
+This removes one known JUCE payload copy; it does not establish that FluidSynth,
+parameter notifications or the entire render path are allocation-free.
+
+
 ## State and UI delivery
 
 The committed path/bookmark/error and immutable preset metadata are copied under

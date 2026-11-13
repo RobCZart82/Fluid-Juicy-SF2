@@ -147,3 +147,17 @@ scan ownership to the processor. Editor close/refresh no longer join filesystem
 work. Processor teardown still waits for its worker; no detached threads are used.
 Native Windows regression compilation and 4/4 CTest suites passed; platform and
 manual acceptance evidence remains separate.
+
+
+## Direct SysEx dispatch, 2026-11-13
+
+Baseline: f7f0be7 (merged PR #25). MidiMessageMetadata::getMessage constructs
+an owning MidiMessage; JUCE 9.0.5 allocates and copies long payloads. Rendering
+now passes complete SysEx directly from the MIDI buffer to FluidSynth through
+a synchronous helper. GM/GS reset state publication is preserved; incomplete
+SysEx is ignored. A long-unknown-message regression checks finite audible notes,
+existing MIDI timing bounds, unchanged selection and cleared MIDI output.
+Native Windows compilation and all four CTest suites passed (6.29 seconds).
+Platform CI and manual REAPER acceptance remain separate evidence on the PR.
+This change does not claim a fully allocation-free synthesizer or benchmarked
+CPU savings, and does not expand MIDI/SysEx compatibility.
