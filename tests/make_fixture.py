@@ -7,7 +7,7 @@ import sys
 def chunk(tag, data):
     return tag + struct.pack('<I', len(data)) + data + b'\0' * (len(data) % 2)
 
-def generate(path, bank_offset=0, octave_program=1):
+def generate(path, bank_offset=0, octave_program=1, pressure=False):
     def name(s): return s.encode().ljust(20, b'\0')
     # Exactly 100 periods at 440 Hz in 44100 samples; loop boundaries are integral.
     pcm = b''.join(struct.pack('<h', round(10000 * math.sin(2 * math.pi * 440 * n / 44100))) for n in range(44100))
@@ -26,7 +26,11 @@ def generate(path, bank_offset=0, octave_program=1):
     pdta = chunk(b'phdr', phdr) + chunk(b'pbag', pbag)
     pdta += chunk(b'pmod', b'\0' * 10) + chunk(b'pgen', pgen)
     pdta += chunk(b'inst', struct.pack('<20sH20sH', name('Sine'), 0, name('EOI'), 1))
-    pdta += chunk(b'ibag', struct.pack('<HHHH', 0, 0, 2, 0)) + chunk(b'imod', b'\0' * 10)
+    # Optional channel-pressure -> attenuation modulator lives in the bank,
+    # so a newly created engine must restore pressure for the audio test to pass.
+    imod = struct.pack('<HHhHH', 13, 48, 960, 0, 0) if pressure else b''
+    pdta += chunk(b'ibag', struct.pack('<HHHH', 0, 0, 2, int(pressure)))
+    pdta += chunk(b'imod', imod + b'\0' * 10)
     pdta += chunk(b'igen', struct.pack('<HHHHHH', 54, 1, 53, 0, 0, 0))
     pdta += chunk(b'shdr', struct.pack('<20sIIIIIBbHH', name('Sine'), 0, 44100, 0, 44100, 44100, 69, 0, 0, 1) + struct.pack('<20sIIIIIBbHH', name('EOS'), 44100, 44100, 44100, 44100, 44100, 0, 0, 0, 1))
     Path(path).write_bytes(chunk(b'RIFF', b'sfbk' + info + sdta + chunk(b'LIST', b'pdta' + pdta)))
@@ -35,3 +39,5 @@ if __name__ == '__main__':
     generate(sys.argv[1])
     generate(Path(sys.argv[1]).with_name("test-shifted.sf2"), bank_offset=5)
     generate(Path(sys.argv[1]).with_name("test-sparse.sf2"), octave_program=2)
+
+    generate(Path(sys.argv[1]).with_name("test-pressure.sf2"), pressure=True)

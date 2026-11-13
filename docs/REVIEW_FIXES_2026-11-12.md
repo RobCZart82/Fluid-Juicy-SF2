@@ -77,3 +77,21 @@ queues a new request before releasing the old worker, and verifies that only the
 new callback is delivered. Native Windows regression compilation and all four
 CTest suites passed with these changes. Platform CI and manual REAPER acceptance
 are separate evidence recorded on the implementing PR.
+
+
+## Audio regression follow-up, 2026-11-13
+
+The dedicated original `test-pressure.sf2` fixture now carries its own
+channel-pressure-to-attenuation modulator. Tests therefore exercise the bank
+loader and newly constructed engines, without injecting a modulator through a
+raw synth-pointer hook. That hook has been removed.
+
+Reset, sample-rate rebuild and background bank adoption must all retain audible
+attenuation without another pressure event. CC121, GM reset and GS reset must
+restore an audible unattenuated note after lifecycle reset. The positive sound
+checks prevent a silent/unloaded engine from satisfying the attenuation checks.
+The fixture is synthetic test data and is not a bundled user SoundFont.
+
+The development plan now matches processor-owned scanning: editor close does
+not join, while full processor teardown still does. This follow-up changes test
+coverage and documentation, not the product's MIDI behavior.

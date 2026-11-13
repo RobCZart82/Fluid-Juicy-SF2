@@ -28,19 +28,16 @@ inline int runReviewFixTests(const String& fixture) {
         JuicySFAudioProcessor target;
         target.prepareToPlay(44100, 256);
         auto& model = target.getFluidSynthModel();
-        check(model.loadSoundFont(fixture, {}), "pressure fixture loads");
+        const auto pressureFixture = File(fixture).getSiblingFile("test-pressure.sf2").getFullPathName();
+        check(model.loadSoundFont(pressureFixture, {}), "pressure fixture loads");
         target.prepareToPlay(44100, 256);
-        auto* synth = model.getActiveSynthForTests();
-        auto* mod = new_fluid_mod();
-        fluid_mod_set_source1(mod, FLUID_MOD_CHANNELPRESSURE,
-            FLUID_MOD_LINEAR | FLUID_MOD_UNIPOLAR | FLUID_MOD_POSITIVE);
-        fluid_mod_set_source2(mod, 0, 0);
-        fluid_mod_set_dest(mod, GEN_ATTENUATION);
-        fluid_mod_set_amount(mod, 960);
-        fluid_synth_add_default_mod(synth, mod, FLUID_SYNTH_OVERWRITE);
-        delete_fluid_mod(mod);
         AudioBuffer<float> block(2, 256);
         MidiBuffer midi;
+        const auto neutralEnvelope = [&] {
+            // GM/GS reset sets sound controllers to 64. Our custom ADSR
+            // modulators can then delay the note beyond this short measurement.
+            for (int cc : {71, 72, 73, 74, 75, 79}) model.setControllerValue(cc, 0);
+        };
         const auto sound = [&](bool pressure) {
             if (pressure) midi.addEvent(MidiMessage::channelPressureChange(1, 100), 0);
             midi.addEvent(MidiMessage::noteOn(1, 69, static_cast<juce::uint8>(100)), 0);
@@ -56,22 +53,40 @@ inline int runReviewFixTests(const String& fixture) {
         check(model.getPressureForTests() == 100 && sound(false) < 0.002f,
               "reset preserves actual channel-pressure modulation without a new MIDI event");
         target.prepareToPlay(48000, 256);
-        check(model.getPressureForTests() == 100, "sample-rate rebuild preserves pressure");
-        model.requestSoundFont(fixture, {});
+        check(model.getPressureForTests() == 100 && sound(false) < 0.002f,
+              "sample-rate rebuild preserves audible pressure modulation");
+        target.reset();
+        model.requestSoundFont(pressureFixture, {});
         check(wait([&] { return !model.isLoading(); }), "pressure bank replacement prepares");
         target.processBlock(block, midi);
-        check(model.getPressureForTests() == 100, "bank replacement preserves pressure");
+        check(model.getPressureForTests() == 100 && sound(false) < 0.002f,
+              "bank replacement preserves audible pressure modulation");
+        target.reset();
         midi.addEvent(MidiMessage::controllerEvent(1, 121, 0), 0);
         target.processBlock(block, midi);
         target.reset();
-        check(model.getPressureForTests() == 0, "CC121 clears pressure through a later reset");
+        check(model.getPressureForTests() == 0 && sound(false) > 0.01f,
+              "CC121 clears actual pressure modulation through a later reset");
+        target.reset();
         midi.addEvent(MidiMessage::channelPressureChange(1, 100), 0);
         target.processBlock(block, midi);
         const uint8_t gm[] = {0x7e, 0x7f, 0x09, 0x01};
         midi.addEvent(MidiMessage::createSysExMessage(gm, sizeof(gm)), 0);
         target.processBlock(block, midi);
         target.reset();
-        check(model.getPressureForTests() == 0, "GM reset clears remembered pressure");
+        neutralEnvelope();
+        check(model.getPressureForTests() == 0 && sound(false) > 0.01f,
+              "GM reset clears actual pressure modulation");
+        target.reset();
+        midi.addEvent(MidiMessage::channelPressureChange(1, 100), 0);
+        target.processBlock(block, midi);
+        const uint8_t gs[] = {0x41, 0x10, 0x42, 0x12, 0x40, 0x00, 0x7f, 0x00, 0x41};
+        midi.addEvent(MidiMessage::createSysExMessage(gs, sizeof(gs)), 0);
+        target.processBlock(block, midi);
+        target.reset();
+        neutralEnvelope();
+        check(model.getPressureForTests() == 0 && sound(false) > 0.01f,
+              "GS reset clears actual pressure modulation");
     }
     {
         JuicySFAudioProcessor target;
