@@ -57,7 +57,11 @@ Ordinary extra CC values are retained. Channel-mode commands, incomplete RPN/NRP
 transactions and custom tuning are not serialized as controller replay. Pitch
 bend sensitivity is stored as whole semitones in the engine-supported 0-72 range;
 larger RPN requests are clamped to that limit. Numeric CC replay excludes data-entry
-and RPN/NRPN selectors/increments. Polyphonic key pressure remains live MIDI,
+and RPN/NRPN selectors/increments. The selected bank/program is authoritative on recall and engine handover;
+raw historical bank-select CC values cannot override it. Complete an in-progress
+Bank Select/Program Change sequence again after recall. Normal Bank Select and
+Program Change messages can still arrive in different live audio blocks.
+Polyphonic key pressure remains live MIDI,
 not saved per-note state. A host reset releases hold pedals and active voices.
 
 States without the new routing field load in Legacy omni mode: all incoming MIDI
@@ -83,3 +87,6 @@ unsupported tuning/NRPN transactions and the existing FluidSynth 64-sample event
 quantization remain separate limits. Real GM/GS SF2/SF3 banks, long-session CPU/
 memory/headroom measurements, manual REAPER 16-track routing, offline renders and
 installer/clean-machine acceptance remain release gates.
+
+See [real-bank acceptance and the output meter](REAL_BANK_ACCEPTANCE.md) for the
+selected-bank test mode, level measurements and remaining host acceptance gates.

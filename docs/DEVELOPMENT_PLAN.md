@@ -141,3 +141,14 @@ omni mode; existing parameter indices/IDs remain stable. Channel 10 defaults to
 bank 128 without inventing a kit when none exists. The first release still needs
 real-bank/host acceptance and installation/distribution work; this branch does
 not publish v1.0.0 or claim complete GM2/GS conformance.
+
+### Real-bank acceptance and metering
+
+The selected Tyroland Fixedup10, LiveHQ V3.0 and Timbres 4.00 banks have now been
+exercised through the plugin processor, with GM audibility, a 16-part scene and
+fresh-instance state recall. A reusable opt-in CLI audit and synthetic CI smoke
+suite are documented in [real-bank acceptance](REAL_BANK_ACCEPTANCE.md).
+A post-Output peak meter with a latched OVER indication exposes measured headroom
+problems without changing bank gain, adding a limiter or rewriting existing state.
+A bank-recall regression also prevents raw MIDI bank-select history from undoing
+a later GUI bank choice. Manual REAPER and long-session acceptance remain open.

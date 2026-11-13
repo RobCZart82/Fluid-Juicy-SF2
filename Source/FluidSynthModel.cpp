@@ -460,6 +460,9 @@ void FluidSynthModel::applyPart(Engine& engine, int channel, bool publishSelecti
             if (value >= 0 && value != state.appliedControllers[static_cast<size_t>(cc)]) {
                 fluid_synth_cc(engine.synth.get(), channel, cc, value);
                 state.appliedControllers[static_cast<size_t>(cc)] = value;
+                // Replayed raw bank-select history must not override the saved/UI preset.
+                // Incoming MIDI CC0/32 is handled directly and may still await Program Change.
+                if (cc == 0 || cc == 32) state.lastSelection = ~0u;
             }
         }
         const int pitch = part.pitch.load(), pressure = part.pressure.load(), range = part.range.load();
@@ -740,6 +743,9 @@ void FluidSynthModel::restoreChannel(Engine& engine, int channel, const ChannelS
     applied.appliedPitch = state.pitch;
     applied.appliedPressure = state.pressure;
     applied.appliedRange = state.pitchSensitivity;
+    // Bank selector CC replay can change FluidSynth's pending bank independently
+    // of its currently assigned preset. Resolve the authoritative intent again.
+    applied.lastSelection = ~0u;
 }
 
 void FluidSynthModel::resetEngine(Engine& engine) {

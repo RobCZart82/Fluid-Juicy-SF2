@@ -68,6 +68,10 @@ public:
     FluidSynthModel& getFluidSynthModel();
 
     SoundFontLibrary soundFontLibrary;
+    // Transient post-gain metering. Does not alter audio or serialized project state.
+    float consumeOutputPeak() { return outputPeak.exchange(0.0f, std::memory_order_relaxed); }
+    bool hasOutputOver() const { return outputOver.load(std::memory_order_relaxed); }
+    void clearOutputOver() { outputOver.store(false, std::memory_order_relaxed); }
     MidiKeyboardState keyboardState;
     std::pair<int, int> getEditorSize() const;
     void setEditorSize(int width, int height);
@@ -83,6 +87,9 @@ private:
     FluidSynthModel fluidSynthModel;
     Synthesiser synth;
     juce::SmoothedValue<float> outputLevel;
+    static_assert(std::atomic<float>::is_always_lock_free, "Meter transport requires lock-free float atomics");
+    std::atomic<float> outputPeak{0};
+    std::atomic<bool> outputOver{false};
 
     AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 

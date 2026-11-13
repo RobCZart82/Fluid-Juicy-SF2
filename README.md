@@ -14,7 +14,7 @@ keeping its familiar interface and bank/preset browser.
 - 16 MIDI parts with independent bank/preset selection and a shared SoundFont.
 - Per-part volume, pan and expression mixer; on-screen keyboard and MIDI input.
 - Background SoundFont loading with recovery after a failed bank change.
-- Filter, envelope and automatable output-level controls.
+- Filter, envelope and automatable output-level controls with peak/OVER metering.
 - VST3 plug-in and standalone application.
 - Build targets: macOS Apple Silicon, macOS Intel and Windows x64.
 

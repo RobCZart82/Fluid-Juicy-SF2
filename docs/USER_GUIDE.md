@@ -16,6 +16,10 @@ In standalone, choose devices under **Options → Audio/MIDI settings**.
 
 **Output** controls the final level, with a -12 dB default for new instances.
 Watch your host's meters and reduce it if needed. It is not a limiter.
+The bar below Output shows the plugin's post-gain peak. OVER records that an
+output sample exceeded 0 dBFS; click the meter to clear it. Lower Output or part
+levels if it returns. Different banks can have very different levels, especially
+with sixteen parts playing together. The meter does not change the audio.
 Projects saved by earlier previews retain their previous unity output level.
 
 ## Find your SoundFonts

@@ -228,11 +228,18 @@ void JuicySFAudioProcessor::processBlock(AudioBuffer<float>& buffer, MidiBuffer&
     fluidSynthModel.processBlock(buffer, midiMessages);
     outputLevel.setTargetValue(juce::Decibels::decibelsToGain(
         valueTreeState.getRawParameterValue("outputGain")->load()));
+    float peak = 0.0f;
     for (int frame = 0; frame < buffer.getNumSamples(); ++frame) {
         const float gain = outputLevel.getNextValue();
-        for (int channel = 0; channel < buffer.getNumChannels(); ++channel)
-            buffer.setSample(channel, frame, buffer.getSample(channel, frame) * gain);
+        for (int channel = 0; channel < buffer.getNumChannels(); ++channel) {
+            const float sample = buffer.getSample(channel, frame) * gain;
+            buffer.setSample(channel, frame, sample);
+            peak = juce::jmax(peak, std::abs(sample));
+        }
     }
+    auto previous = outputPeak.load(std::memory_order_relaxed);
+    while (previous < peak && !outputPeak.compare_exchange_weak(previous, peak, std::memory_order_relaxed)) {}
+    if (peak > 1.0f) outputOver.store(true, std::memory_order_relaxed);
 
     // and now get our synth to process these midi events and generate its output.
     // synth.renderNextBlock(buffer, midiMessages, 0, numSamples);

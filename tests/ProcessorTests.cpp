@@ -7,6 +7,8 @@
 #include "ReviewFixTests.h"
 #include "HostStateTests.h"
 #include "PartTests.h"
+#include "BankAcceptance.h"
+#include "OutputMeterTests.h"
 #include "../Source/SoundFontLibrary.h"
 #include "../Source/SoundFontFolders.h"
 
@@ -19,6 +21,8 @@ int main(int argc, char** argv) {
         return 0;
     }
     juce::ScopedJuceInitialiser_GUI initialise;
+    if (argc == 4 && (String(argv[1]) == "--bank-audit" || String(argv[1]) == "--bank-smoke"))
+        return runBankAcceptance(argv[2], argv[3], String(argv[1]) == "--bank-audit");
     int failures = 0;
     const auto check = [&](bool ok, const char* description) {
         std::cout << (ok ? "PASS " : "FAIL ") << description << std::endl;
@@ -554,6 +558,7 @@ int main(int argc, char** argv) {
     failures += runLoaderTests(originalPath);
     failures += runReviewFixTests(originalPath);
     failures += runHostStateTests(originalPath);
+    failures += runOutputMeterTests(File(originalPath).getSiblingFile("test-parts.sf2").getFullPathName());
     failures += runPartTests(File(originalPath).getSiblingFile("test-parts.sf2").getFullPathName());
     return failures == 0 ? 0 : 1;
 }
