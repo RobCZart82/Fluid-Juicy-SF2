@@ -4,6 +4,7 @@
 
 namespace PartParameters {
 inline constexpr int count = 16;
+inline constexpr int maxBendRange = 72; // FluidSynth public pitch-wheel-sensitivity API limit.
 struct Control { int cc; const char* name; const char* label; int initial; };
 inline constexpr std::array<Control, 11> controls{{
     {71, "filterResonance", "Filter resonance", 0}, {72, "release", "Release", 0},

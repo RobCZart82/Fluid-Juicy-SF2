@@ -130,6 +130,12 @@ inline int runPartTests(const String& fixture) {
     stopDrums.addEvent(MidiMessage::controllerEvent(10, 120, 0), 0);
     check(energy(render(p, stopDrums), 0) < 0.00001, "all-sound-off reaches the addressed drum part");
     p.reset();
+    MidiBuffer largeRange;
+    largeRange.addEvent(MidiMessage::controllerEvent(3, 101, 0), 0);
+    largeRange.addEvent(MidiMessage::controllerEvent(3, 100, 0), 0);
+    largeRange.addEvent(MidiMessage::controllerEvent(3, 6, 127), 0);
+    render(p, largeRange);
+    check(get(p, 2, "bendRange") <= 72.0f, "RPN bend sensitivity respects FluidSynth's supported 72-semitone API limit");
     bool distinct = true;
     for (int part = 0; part < PartParameters::count; ++part) {
         set(p, part, "volume", static_cast<float>(60 + part));

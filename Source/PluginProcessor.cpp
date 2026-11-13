@@ -83,7 +83,7 @@ AudioProcessorValueTreeState::ParameterLayout JuicySFAudioProcessor::createParam
         }
         add("pitchBend", "Pitch bend", 16383, 8192);
         add("pressure", "Channel pressure", 127, 0);
-        add("bendRange", "Pitch bend range", 127, 2);
+        add("bendRange", "Pitch bend range", PartParameters::maxBendRange, 2);
     }
     return layout;
 }

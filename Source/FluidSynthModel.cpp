@@ -528,7 +528,9 @@ void FluidSynthModel::synchronisePart(Engine& engine, int channel) {
     int pitch = 8192, range = 2;
     fluid_synth_get_pitch_bend(engine.synth.get(), channel, &pitch);
     fluid_synth_get_pitch_wheel_sens(engine.synth.get(), channel, &range);
-    part.pitch.store(pitch); part.range.store(range); part.pressure.store(state.pressure);
+    const int supportedRange = juce::jlimit(0, PartParameters::maxBendRange, range);
+    if (range != supportedRange) fluid_synth_pitch_wheel_sens(engine.synth.get(), channel, supportedRange);
+    part.pitch.store(pitch); part.range.store(supportedRange); part.pressure.store(state.pressure);
     publishCurrentSelection(engine, channel);
 }
 FluidSynthModel::PartState FluidSynthModel::getPartState(int channel) const {
@@ -887,7 +889,10 @@ void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiM
             } else if (PartParameters::isTransaction(cc)) {
                 int range = 2;
                 fluid_synth_get_pitch_wheel_sens(synth.get(), channel, &range);
-                part.range.store(range);
+                const int supportedRange = juce::jlimit(0, PartParameters::maxBendRange, range);
+                if (range != supportedRange) fluid_synth_pitch_wheel_sens(synth.get(), channel, supportedRange);
+                part.range.store(supportedRange);
+                range = supportedRange;
                 *part.rangeParameter = range;
             }
         } else if (m.isProgramChange()) {

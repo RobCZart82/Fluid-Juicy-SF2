@@ -55,7 +55,8 @@ Saved settings include each part's bank/program, volume, pan, expression,
 modulation, pedal, envelope/filter controls, pitch, pressure and bend sensitivity.
 Ordinary extra CC values are retained. Channel-mode commands, incomplete RPN/NRPN
 transactions and custom tuning are not serialized as controller replay. Pitch
-bend sensitivity is stored as semitones. Numeric CC replay excludes data-entry
+bend sensitivity is stored as whole semitones in the engine-supported 0-72 range;
+larger RPN requests are clamped to that limit. Numeric CC replay excludes data-entry
 and RPN/NRPN selectors/increments. Polyphonic key pressure remains live MIDI,
 not saved per-note state. A host reset releases hold pedals and active voices.
 
