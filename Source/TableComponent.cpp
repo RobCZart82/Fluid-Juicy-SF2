@@ -7,6 +7,7 @@
 //
 
 #include "TableComponent.h"
+#include "PartParameters.h"
 #include "MyColours.h"
 #include "Util.h"
 #include <functional>
@@ -93,8 +94,8 @@ void TableComponent::loadModelFrom(ValueTree& banks) {
 }
 
 void TableComponent::timerCallback() {
-    const auto bank = static_cast<int>(valueTreeState.getRawParameterValue("bank")->load());
-    const auto preset = static_cast<int>(valueTreeState.getRawParameterValue("preset")->load());
+    const auto bank = static_cast<int>(valueTreeState.getRawParameterValue(bankID)->load());
+    const auto preset = static_cast<int>(valueTreeState.getRawParameterValue(presetID)->load());
     if (bank != displayedBank) repopulateTable();
     else if (preset != displayedPreset) selectCurrentPreset();
     fitColumnsToViewport();
@@ -102,7 +103,7 @@ void TableComponent::timerCallback() {
 
 void TableComponent::repopulateTable() {
     rows.clear();
-    RangedAudioParameter *param{valueTreeState.getParameter("bank")};
+    RangedAudioParameter *param{valueTreeState.getParameter(bankID)};
     jassert(dynamic_cast<AudioParameterInt*>(param) != nullptr);
     AudioParameterInt* castParam{dynamic_cast<AudioParameterInt*>(param)};
     int bank{castParam->get()};
@@ -214,7 +215,7 @@ void TableComponent::sortOrderChanged (
 
 void TableComponent::selectCurrentPreset() {
     table.deselectAllRows();
-    RangedAudioParameter *param{valueTreeState.getParameter("preset")};
+    RangedAudioParameter *param{valueTreeState.getParameter(presetID)};
     jassert(dynamic_cast<AudioParameterInt*>(param) != nullptr);
     AudioParameterInt* castParam{dynamic_cast<AudioParameterInt*>(param)};
     int value{castParam->get()};
@@ -301,7 +302,7 @@ void TableComponent::selectedRowsChanged (int row) {
     }
     int newPreset{rows[row].preset};
     displayedPreset = newPreset;
-    RangedAudioParameter *param{valueTreeState.getParameter("preset")};
+    RangedAudioParameter *param{valueTreeState.getParameter(presetID)};
     jassert(dynamic_cast<AudioParameterInt*>(param) != nullptr);
     AudioParameterInt* castParam{dynamic_cast<AudioParameterInt*>(param)};
     *castParam = newPreset;
@@ -318,3 +319,9 @@ TableRow::TableRow(
 : preset{preset}
 , name{name}
 {}
+
+void TableComponent::setPart(int part) {
+    bankID = PartParameters::id(part, "bank");
+    presetID = PartParameters::id(part, "preset");
+    repopulateTable();
+}

@@ -66,10 +66,26 @@ AudioProcessorValueTreeState::ParameterLayout JuicySFAudioProcessor::createParam
             juce::AudioParameterFloatAttributes().withLabel("dB")),
     };
 
-    return {
-        make_move_iterator(begin(params)),
-        make_move_iterator(end(params))
-    };
+    AudioProcessorValueTreeState::ParameterLayout layout{
+        make_move_iterator(begin(params)), make_move_iterator(end(params))};
+    for (int part = 0; part < PartParameters::count; ++part) {
+        const auto add = [&](const String& name, const String& label, int maximum, int initial) {
+            layout.add(make_unique<AudioParameterInt>(PartParameters::id(part, name),
+                "Part " + String(part + 1) + " " + label, 0, maximum, initial));
+        };
+        if (part > 0) {
+            add("bank", "Bank", 128, part == 9 ? 128 : 0);
+            add("preset", "Program", 127, 0);
+        }
+        for (const auto& control : PartParameters::controls) {
+            if (part == 0 && control.cc >= 71) continue; // Original six controls already exist.
+            add(control.name, control.label, 127, control.initial);
+        }
+        add("pitchBend", "Pitch bend", 16383, 8192);
+        add("pressure", "Channel pressure", 127, 0);
+        add("bendRange", "Pitch bend range", 127, 2);
+    }
+    return layout;
 }
 
 JuicySFAudioProcessor::~JuicySFAudioProcessor()
@@ -247,16 +263,21 @@ void JuicySFAudioProcessor::getStateInformation (MemoryBlock& destData)
 
     // Create an outer XML element..
     XmlElement xml{"MYPLUGINSETTINGS"};
+    xml.setAttribute("partFormat", 1);
+    xml.setAttribute("routing", fluidSynthModel.isLegacyOmni() ? "legacyOmni" : "sixteen");
 
     // Store the values of all our parameters, using their param ID as the XML attribute
     const auto fontState = fluidSynthModel.getSoundFontState();
-    const auto selected = fontState.bankProgram;
+
     XmlElement* params{xml.createNewChildElement("params")};
     for (auto* param : getParameters()) {
          if (auto* p = dynamic_cast<AudioProcessorParameterWithID*> (param)) {
-             const float value = p->paramID == "bank" ? static_cast<float>(selected >> 16) / 128.0f
-                 : p->paramID == "preset" ? static_cast<float>(selected & 0xffffu) / 127.0f
-                 : p->getValue();
+             float value = p->getValue();
+             for (int part = 0; part < PartParameters::count; ++part) {
+                 const auto selection = fluidSynthModel.getBankProgram(part);
+                 if (p->paramID == PartParameters::id(part, "bank")) value = static_cast<float>(selection >> 16) / 128.0f;
+                 if (p->paramID == PartParameters::id(part, "preset")) value = static_cast<float>(selection & 0xffffu) / 127.0f;
+             }
              params->setAttribute(p->paramID, value);
          }
     }
@@ -264,10 +285,20 @@ void JuicySFAudioProcessor::getStateInformation (MemoryBlock& destData)
     auto* ui = xml.createNewChildElement("uiState");
     ui->setAttribute("width", size.first);
     ui->setAttribute("height", size.second);
+    ui->setAttribute("part", fluidSynthModel.getChannel());
     auto* font = xml.createNewChildElement("soundFont");
     font->setAttribute("path", fontState.path);
     font->setAttribute("bookmark", fontState.bookmark.toBase64Encoding());
 
+    auto* midi = xml.createNewChildElement("partControllers");
+    for (int part = 0; part < PartParameters::count; ++part) {
+        auto* channel = midi->createNewChildElement("part");
+        channel->setAttribute("index", part);
+        const auto state = fluidSynthModel.getPartState(part);
+        for (int cc = 0; cc < 120; ++cc)
+            if (state.controllers[static_cast<size_t>(cc)] >= 0 && !PartParameters::isTransaction(cc))
+                channel->setAttribute("cc" + String(cc), state.controllers[static_cast<size_t>(cc)]);
+    }
     DEBUG_PRINT(xml.createDocument("",false,false));
 
     copyXmlToBinary(xml, destData);
@@ -285,6 +316,7 @@ void JuicySFAudioProcessor::setStateInformation (const void* data, int sizeInByt
     if (xmlState.get() != nullptr) {
         // make sure that it's actually our type of XML object..
         if (xmlState->hasTagName(valueTreeState.state.getType())) {
+            if (xmlState->getIntAttribute("partFormat", 0) < 0 || xmlState->getIntAttribute("partFormat", 0) > 1) return;
             {
                 XmlElement* xmlElement{xmlState->getChildByName("soundFont")};
                 if (xmlElement) {
@@ -296,7 +328,10 @@ void JuicySFAudioProcessor::setStateInformation (const void* data, int sizeInByt
                         return; // A failed project-bank replacement must preserve the working parameters too.
                 }
             }
+            fluidSynthModel.setLegacyOmni(xmlState->getStringAttribute("routing") != "sixteen");
+            fluidSynthModel.clearExtraControllers();
             if (auto* ui = xmlState->getChildByName("uiState")) {
+                fluidSynthModel.setSelectedPart(fluidSynthModel.isLegacyOmni() ? 0 : ui->getIntAttribute("part", 0));
                 const auto size = getEditorSize();
                 setEditorSize(ui->getIntAttribute("width", size.first),
                               ui->getIntAttribute("height", size.second));
@@ -307,10 +342,26 @@ void JuicySFAudioProcessor::setStateInformation (const void* data, int sizeInByt
                     if (auto* p = dynamic_cast<AudioProcessorParameterWithID*>(param)) {
                         // Old previews had unity output with no outputGain field.
                         // Preserve their balance while new instances start at -12 dB.
+                        const bool oldPartParameter = p->paramID == "bank" || p->paramID == "preset"
+                            || p->paramID == "attack" || p->paramID == "decay" || p->paramID == "sustain"
+                            || p->paramID == "release" || p->paramID == "filterCutOff" || p->paramID == "filterResonance";
                         const float fallback = p->paramID == "outputGain"
-                            ? valueTreeState.getParameter("outputGain")->convertTo0to1(0.0f) : p->getValue();
+                            ? valueTreeState.getParameter("outputGain")->convertTo0to1(0.0f)
+                            : oldPartParameter ? p->getValue() : p->getDefaultValue();
                         p->setValueNotifyingHost(static_cast<float>(params->getDoubleAttribute(p->paramID, fallback)));
                     }
+                }
+            }
+            if (auto* midi = xmlState->getChildByName("partControllers")) {
+                for (const auto* channel : midi->getChildIterator()) {
+                    const int part = channel->getIntAttribute("index", -1);
+                    if (!channel->hasTagName("part") || part < 0 || part >= PartParameters::count) continue;
+                    FluidSynthModel::PartState state; state.controllers.fill(-1);
+                    for (int cc = 0; cc < 120; ++cc) {
+                        const int value = channel->getIntAttribute("cc" + String(cc), -1);
+                        if (value >= 0 && value <= 127) state.controllers[static_cast<size_t>(cc)] = value;
+                    }
+                    fluidSynthModel.restorePartState(part, state);
                 }
             }
         }

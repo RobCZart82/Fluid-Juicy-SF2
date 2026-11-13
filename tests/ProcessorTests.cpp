@@ -6,6 +6,7 @@
 #include "LoaderTests.h"
 #include "ReviewFixTests.h"
 #include "HostStateTests.h"
+#include "PartTests.h"
 #include "../Source/SoundFontLibrary.h"
 #include "../Source/SoundFontFolders.h"
 
@@ -553,5 +554,6 @@ int main(int argc, char** argv) {
     failures += runLoaderTests(originalPath);
     failures += runReviewFixTests(originalPath);
     failures += runHostStateTests(originalPath);
+    failures += runPartTests(File(originalPath).getSiblingFile("test-parts.sf2").getFullPathName());
     return failures == 0 ? 0 : 1;
 }

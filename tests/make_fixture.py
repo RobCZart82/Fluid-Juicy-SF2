@@ -7,7 +7,7 @@ import sys
 def chunk(tag, data):
     return tag + struct.pack('<I', len(data)) + data + b'\0' * (len(data) % 2)
 
-def generate(path, bank_offset=0, octave_program=1, pressure=False):
+def generate(path, bank_offset=0, octave_program=1, pressure=False, multitimbral=False):
     def name(s): return s.encode().ljust(20, b'\0')
     # Exactly 100 periods at 440 Hz in 44100 samples; loop boundaries are integral.
     pcm = b''.join(struct.pack('<h', round(10000 * math.sin(2 * math.pi * 440 * n / 44100))) for n in range(44100))
@@ -16,13 +16,22 @@ def generate(path, bank_offset=0, octave_program=1, pressure=False):
     sdta = chunk(b'LIST', b'sdta' + chunk(b'smpl', pcm + b'\0' * 92))
     # Bank 8 is an octave higher, so tests can verify the selected bank by audio.
     presets = [('Sine', 0, 0), ('Sine 2', 1, 0), ('Octave', 0, 8), ('Octave 2', octave_program, 8)]
+    if multitimbral:
+        presets.append(("Test Drum Kit", 0, 128))
     presets = [(n, pr, bank + bank_offset) for n, pr, bank in presets]
     phdr = b''.join(struct.pack('<20sHHHIII', name(n), pr, bank, i, 0, 0, 0)
                     for i, (n, pr, bank) in enumerate(presets))
     phdr += struct.pack('<20sHHHIII', name('EOP'), 0, 0, len(presets), 0, 0, 0)
-    pbag = b''.join(struct.pack('<HH', index, 0) for index in [0, 1, 2, 4, 6])
-    pgen = b''.join(struct.pack('<HH', op, val) for op, val in
-                    [(41, 0), (41, 0), (51, 12), (41, 0), (51, 12), (41, 0), (0, 0)])
+    generators = []
+    bags = []
+    for _, _, bank in presets:
+        bags.append(len(generators))
+        if bank - bank_offset == 8:
+            generators.append((51, 12))
+        generators.append((41, 0))
+    bags.append(len(generators))
+    pbag = b''.join(struct.pack('<HH', index, 0) for index in bags)
+    pgen = b''.join(struct.pack('<HH', op, val) for op, val in generators + [(0, 0)])
     pdta = chunk(b'phdr', phdr) + chunk(b'pbag', pbag)
     pdta += chunk(b'pmod', b'\0' * 10) + chunk(b'pgen', pgen)
     pdta += chunk(b'inst', struct.pack('<20sH20sH', name('Sine'), 0, name('EOI'), 1))
@@ -41,3 +50,5 @@ if __name__ == '__main__':
     generate(Path(sys.argv[1]).with_name("test-sparse.sf2"), octave_program=2)
 
     generate(Path(sys.argv[1]).with_name("test-pressure.sf2"), pressure=True)
+
+    generate(Path(sys.argv[1]).with_name("test-parts.sf2"), pressure=True, multitimbral=True)

@@ -10,27 +10,6 @@ using JuicyMac::CFPtr;
 #endif
 thread_local FluidSynthModel* FluidSynthModel::publishingSelection = nullptr;
 thread_local FluidSynthModel* FluidSynthModel::renderingModel = nullptr;
-const map<fluid_midi_control_change, String> FluidSynthModel::controllerToParam{
-    {SOUND_CTRL2, "filterResonance"}, // MIDI CC 71 Timbre/Harmonic Intensity (filter resonance)
-    {SOUND_CTRL3, "release"}, // MIDI CC 72 Release time
-    {SOUND_CTRL4, "attack"}, // MIDI CC 73 Attack time
-    {SOUND_CTRL5, "filterCutOff"}, // MIDI CC 74 Brightness (cutoff frequency, FILTERFC)
-    {SOUND_CTRL6, "decay"}, // MIDI CC 75 Decay Time
-    {SOUND_CTRL10, "sustain"}}; // MIDI CC 79 undefined
-
-const map<String, fluid_midi_control_change> FluidSynthModel::paramToController{[]{
-    map<String, fluid_midi_control_change> map;
-    transform(
-        controllerToParam.begin(),
-        controllerToParam.end(),
-        inserter(map, map.begin()),
-        [](const pair<fluid_midi_control_change, String>& pair) {
-            return make_pair(pair.second, pair.first);
-        });
-    return map;
-}()};
-
-
 FluidSynthModel::Engine::~Engine() {
 #if JUICY_ENABLE_TEST_HOOKS
     if (renderingModel == owner) ++owner->audioReclaims;
@@ -44,16 +23,28 @@ FluidSynthModel::Engine::~Engine() {
     owner->engineAvailable.notify_all();
 }
 FluidSynthModel::FluidSynthModel(AudioProcessorValueTreeState& state) : valueTreeState(state) {
-    for (auto& value : requestedControllers) value.store(-1);
-    selection.store(packed(static_cast<int>(state.getRawParameterValue("bank")->load()),
-                           static_cast<int>(state.getRawParameterValue("preset")->load())));
-    for (const auto& entry : controllerToParam) {
-        requestedControllers[static_cast<size_t>(entry.first)].store(
-            static_cast<int>(state.getRawParameterValue(entry.second)->load()));
-        state.addParameterListener(entry.second, this);
+    for (int channel = 0; channel < partCount; ++channel) {
+        auto& part = parts[static_cast<size_t>(channel)];
+        for (auto& value : part.controllers) value.store(-1);
+        const auto bind = [&](const String& name, int kind) {
+            const auto id = PartParameters::id(channel, name);
+            auto* parameter = static_cast<AudioParameterInt*>(state.getParameter(id));
+            bindings.emplace(id, Binding{channel, kind});
+            state.addParameterListener(id, this);
+            return parameter;
+        };
+        part.bank = bind("bank", -1);
+        part.preset = bind("preset", -2);
+        part.selection.store(packed(part.bank->get(), part.preset->get()));
+        for (const auto& control : PartParameters::controls) {
+            auto* parameter = bind(control.name, control.cc);
+            part.ccParameters[static_cast<size_t>(control.cc)] = parameter;
+            part.controllers[static_cast<size_t>(control.cc)].store(parameter->get());
+        }
+        part.pitchParameter = bind("pitchBend", -3);
+        part.pressureParameter = bind("pressure", -4);
+        part.rangeParameter = bind("bendRange", -5);
     }
-    state.addParameterListener("bank", this);
-    state.addParameterListener("preset", this);
     publishedMetadata = make_shared<Metadata>();
     loader = thread([this] { loaderLoop(); });
 }
@@ -66,10 +57,8 @@ FluidSynthModel::~FluidSynthModel() {
     }
     requestReady.notify_one();
     loader.join();
-    valueTreeState.removeParameterListener("bank", this);
-    valueTreeState.removeParameterListener("preset", this);
-    for (const auto& entry : controllerToParam)
-        valueTreeState.removeParameterListener(entry.second, this);
+    for (const auto& binding : bindings)
+        valueTreeState.removeParameterListener(binding.first, this);
     delete pending.exchange(nullptr);
     reclaimRetired();
     active.reset();
@@ -88,7 +77,7 @@ unique_ptr<FluidSynthModel::Engine> FluidSynthModel::makeEngine(float rate) {
     }
     auto engine = make_unique<Engine>(this);
     engine->rate = rate;
-    engine->appliedControllers.fill(-1);
+    for (auto& channel : engine->channels) channel.appliedControllers.fill(-1);
     engine->metadata = make_shared<Metadata>();
     auto& settings = engine->settings;
     auto& synth = engine->synth;
@@ -100,6 +89,7 @@ unique_ptr<FluidSynthModel::Engine> FluidSynthModel::makeEngine(float rate) {
 #endif
 
     fluid_settings_setnum(settings.get(), "synth.sample-rate", rate);
+    fluid_settings_setint(settings.get(), "synth.midi-channels", partCount);
     synth.reset(new_fluid_synth(settings.get()));
     if (!synth) throw runtime_error("Could not create FluidSynth engine");
 
@@ -114,10 +104,11 @@ unique_ptr<FluidSynthModel::Engine> FluidSynthModel::makeEngine(float rate) {
     // i.e. we are forced to start at 0 and climb from there
     // --
     // let's zero out every audio param that we manage
-    for (const auto &[controller, param]: controllerToParam) {
-        fluid_synth_cc(synth.get(), 0, static_cast<int>(controller), 0);
-    }
-    
+    for (int channel = 0; channel < partCount; ++channel)
+        for (const auto& control : PartParameters::controls)
+            fluid_synth_cc(synth.get(), channel, control.cc, control.initial);
+    fluid_synth_set_channel_type(synth.get(), 9, CHANNEL_TYPE_DRUM);
+
     // http://www.synthfont.com/SoundFont_NRPNs.PDF
     float env_amount{20000.0f};
     
@@ -340,19 +331,15 @@ unique_ptr<FluidSynthModel::Engine> FluidSynthModel::prepareFont(const Request& 
     sort(metadata->presets.begin(), metadata->presets.end(), [](const Preset& a, const Preset& b) {
         return tie(a.bank, a.program) < tie(b.bank, b.program);
     });
-    engine->builtSelectionRequest = selection.load();
-    const int bank = static_cast<int>(engine->builtSelectionRequest >> 16);
-    const int program = static_cast<int>(engine->builtSelectionRequest & 0xffffu);
-    if (fluid_synth_program_select(engine->synth.get(), 0, engine->font, bank, program) != FLUID_OK) {
-        const auto inBank = find_if(metadata->presets.begin(), metadata->presets.end(),
-            [bank](const Preset& preset) { return preset.bank == bank; });
-        const auto& first = inBank != metadata->presets.end() ? *inBank : metadata->presets.front();
-        if (fluid_synth_program_select(engine->synth.get(), 0, engine->font, first.bank, first.program) != FLUID_OK)
-            return nullptr;
+    engine->metadata = metadata;
+    for (int channel = 0; channel < partCount; ++channel) {
+        auto& state = engine->channels[static_cast<size_t>(channel)];
+        state.builtSelectionRequest = parts[static_cast<size_t>(channel)].selection.load();
+        applyPart(*engine, channel, false, false);
+        int selectedFont = -1, bank = 0, program = 0;
+        fluid_synth_get_program(engine->synth.get(), channel, &selectedFont, &bank, &program);
+        state.preparedSelection = selectedFont == engine->font ? packed(bank, program) : state.builtSelectionRequest;
     }
-    int selectedFont, selectedBank, selectedProgram;
-    fluid_synth_get_program(engine->synth.get(), 0, &selectedFont, &selectedBank, &selectedProgram);
-    engine->preparedSelection = packed(selectedBank, selectedProgram);
     engine->metadata = std::move(metadata);
     return engine;
 }
@@ -377,8 +364,11 @@ bool FluidSynthModel::publish(unique_ptr<Engine> candidate, const Request& reque
             desiredEmpty.store(empty);
             if (empty) unloadEpoch.store(request.id);
             if (!empty) {
-                auto expected = candidate->builtSelectionRequest;
-                selection.compare_exchange_strong(expected, candidate->preparedSelection);
+                for (int channel = 0; channel < partCount; ++channel) {
+                    auto& state = candidate->channels[static_cast<size_t>(channel)];
+                    auto expected = state.builtSelectionRequest;
+                    parts[static_cast<size_t>(channel)].selection.compare_exchange_strong(expected, state.preparedSelection);
+                }
             }
         }
         obsolete = pending.exchange(candidate.release());
@@ -406,8 +396,9 @@ void FluidSynthModel::reclaimRetired() {
 }
 void FluidSynthModel::adoptPending() {
     if (auto* next = pending.exchange(nullptr)) {
-        const auto state = captureChannel(*active);
-        restoreChannel(*next, state, false);
+        if (next->crossfade)
+            for (int channel = 0; channel < partCount; ++channel)
+                restoreChannel(*next, channel, captureChannel(*active, channel), false);
         retireEngine(fading.release());
         fadeRemaining = 0;
         auto* previous = active.release();
@@ -426,90 +417,141 @@ void FluidSynthModel::adoptWhileStopped() {
     fadeRemaining = 0;
     reclaimRetired();
     if (auto* next = pending.exchange(nullptr)) {
-        const auto state = captureChannel(*active);
-        restoreChannel(*next, state, false);
+        if (next->crossfade)
+            for (int channel = 0; channel < partCount; ++channel)
+                restoreChannel(*next, channel, captureChannel(*active, channel), false);
         active.reset(next); // Host has stopped rendering: reclamation is non-RT.
         activeRequest.store(next->request);
     }
 }
 void FluidSynthModel::parameterChanged(const String& id, float value) {
     if (publishingSelection == this) return;
-    if (id == "bank" || id == "preset") {
-        auto before = selection.load();
+    const auto binding = bindings.find(id);
+    if (binding == bindings.end()) return;
+    auto& part = parts[static_cast<size_t>(binding->second.part)];
+    const int kind = binding->second.kind;
+    if (kind == -1 || kind == -2) {
+        auto before = part.selection.load();
         unsigned int after;
         do {
-            after = id == "bank" ? packed(static_cast<int>(value), static_cast<int>(before & 0xffffu))
-                                 : packed(static_cast<int>(before >> 16), static_cast<int>(value));
-        } while (!selection.compare_exchange_weak(before, after));
-    } else if (const auto it = paramToController.find(id); it != paramToController.end()) {
-        requestedControllers[static_cast<size_t>(it->second)].store(static_cast<int>(value));
-    }
+            after = kind == -1 ? packed(static_cast<int>(value), static_cast<int>(before & 0xffffu))
+                              : packed(static_cast<int>(before >> 16), static_cast<int>(value));
+        } while (!part.selection.compare_exchange_weak(before, after));
+    } else if (kind == -3) part.pitch.store(static_cast<int>(value));
+    else if (kind == -4) part.pressure.store(static_cast<int>(value));
+    else if (kind == -5) part.range.store(static_cast<int>(value));
+    else part.controllers[static_cast<size_t>(kind)].store(static_cast<int>(value));
 }
 void FluidSynthModel::setControllerValue(int controller, int value) {
-    const auto it = controllerToParam.find(static_cast<fluid_midi_control_change>(controller));
-    if (it != controllerToParam.end())
-        *static_cast<AudioParameterInt*>(valueTreeState.getParameter(it->second)) = juce::jlimit(0, 127, value);
+    if (controller < 0 || controller > 127) return;
+    auto* parameter = parts[static_cast<size_t>(getChannel())].ccParameters[static_cast<size_t>(controller)];
+    if (parameter) *parameter = juce::jlimit(0, 127, value);
 }
 void FluidSynthModel::applyControls(Engine& engine) {
-    for (const auto& entry : controllerToParam) {
-        const auto cc = static_cast<size_t>(entry.first);
-        const int value = requestedControllers[cc].load();
-        if (value != engine.appliedControllers[cc]) {
-            fluid_synth_cc(engine.synth.get(), 0, static_cast<int>(cc), value);
-            engine.appliedControllers[cc] = value;
+    for (int channel = 0; channel < partCount; ++channel) applyPart(engine, channel);
+}
+void FluidSynthModel::applyPart(Engine& engine, int channel, bool publishSelection, bool applyControllers) {
+    auto& part = parts[static_cast<size_t>(channel)];
+    auto& state = engine.channels[static_cast<size_t>(channel)];
+    if (applyControllers) {
+        for (int cc = 0; cc < 120; ++cc) {
+            if (PartParameters::isTransaction(cc)) continue;
+            const int value = part.controllers[static_cast<size_t>(cc)].load();
+            if (value >= 0 && value != state.appliedControllers[static_cast<size_t>(cc)]) {
+                fluid_synth_cc(engine.synth.get(), channel, cc, value);
+                state.appliedControllers[static_cast<size_t>(cc)] = value;
+            }
         }
+        const int pitch = part.pitch.load(), pressure = part.pressure.load(), range = part.range.load();
+        if (state.appliedPitch != pitch) fluid_synth_pitch_bend(engine.synth.get(), channel, state.appliedPitch = pitch);
+        if (state.appliedPressure != pressure) fluid_synth_channel_pressure(engine.synth.get(), channel, state.appliedPressure = pressure);
+        if (state.appliedRange != range) fluid_synth_pitch_wheel_sens(engine.synth.get(), channel, state.appliedRange = range);
+        state.pressure = pressure;
     }
-    const auto requested = selection.load();
-    if (engine.font >= 0 && engine.lastSelection != requested) {
+    const auto requested = part.selection.load();
+    if (engine.font >= 0 && state.lastSelection != requested) {
         const auto& presets = engine.metadata->presets;
-        const int bank = static_cast<int>(requested >> 16);
-        const int program = static_cast<int>(requested & 0xffffu);
-        auto chosen = find_if(presets.begin(), presets.end(), [=](const Preset& preset) {
-            return preset.bank == bank && preset.program == program;
-        });
+        const int bank = static_cast<int>(requested >> 16), program = static_cast<int>(requested & 0xffffu);
+        auto chosen = find_if(presets.begin(), presets.end(), [=](const Preset& p) { return p.bank == bank && p.program == program; });
         if (chosen == presets.end())
-            chosen = find_if(presets.begin(), presets.end(), [=](const Preset& preset) { return preset.bank == bank; });
-        if (chosen == presets.end()) chosen = presets.begin();
+            chosen = find_if(presets.begin(), presets.end(), [=](const Preset& p) { return p.bank == bank; });
+        // A missing drum kit must not silently become a melodic piano.
+        if (chosen == presets.end() && !(channel == 9 && bank == 128)) chosen = presets.begin();
         if (chosen != presets.end()) {
-            fluid_synth_program_select(engine.synth.get(), 0, engine.font, chosen->bank, chosen->program);
+            fluid_synth_program_select(engine.synth.get(), channel, engine.font, chosen->bank, chosen->program);
             const auto actual = packed(chosen->bank, chosen->program);
             auto expected = requested;
-            // A control change arriving during adoption must win next block.
-            if (actual != requested && selection.compare_exchange_strong(expected, actual)) {
-                if (renderingModel == this) publishParameters();
-                else uiDirty.store(true); // Never notify a host while holding the builder/lifecycle lock.
+            if (actual != requested && publishSelection && part.selection.compare_exchange_strong(expected, actual)) {
+                if (renderingModel == this) publishParameters(channel);
+                else uiDirty.store(true);
             }
-            engine.lastSelection = actual;
+            state.lastSelection = actual;
+        } else {
+            fluid_synth_unset_program(engine.synth.get(), channel);
+            state.lastSelection = requested;
         }
     }
 }
-void FluidSynthModel::publishParameters() {
+void FluidSynthModel::publishParameters(int channel) {
     const juce::ScopedValueSetter<FluidSynthModel*> guard(publishingSelection, this);
-    const auto current = selection.load();
-    *static_cast<AudioParameterInt*>(valueTreeState.getParameter("bank")) = static_cast<int>(current >> 16);
-    *static_cast<AudioParameterInt*>(valueTreeState.getParameter("preset")) = static_cast<int>(current & 0xffffu);
+    auto& part = parts[static_cast<size_t>(channel)];
+    const auto current = part.selection.load();
+    *part.bank = static_cast<int>(current >> 16);
+    *part.preset = static_cast<int>(current & 0xffffu);
+    for (const auto& control : PartParameters::controls)
+        *part.ccParameters[static_cast<size_t>(control.cc)] = part.controllers[static_cast<size_t>(control.cc)].load();
+    *part.pitchParameter = part.pitch.load();
+    *part.pressureParameter = part.pressure.load();
+    *part.rangeParameter = part.range.load();
 }
-void FluidSynthModel::publishCurrentSelection(Engine& engine) {
+void FluidSynthModel::publishCurrentSelection(Engine& engine, int channel) {
     int font, bank, program;
-    if (fluid_synth_get_program(engine.synth.get(), 0, &font, &bank, &program) != FLUID_OK) return;
-    selection.store(packed(bank, program));
-    const bool playable = font == engine.font && any_of(engine.metadata->presets.begin(),
-        engine.metadata->presets.end(), [=](const Preset& preset) {
-            return preset.bank == bank && preset.program == program;
-        });
-    if (playable) engine.lastSelection = packed(bank, program);
-    else {
-        // FluidSynth may successfully assign a null preset for an unsupported
-        // MIDI bank/program. Resolve against this engine's immutable metadata.
-        engine.lastSelection = ~0u;
-        applyControls(engine);
+    if (fluid_synth_get_program(engine.synth.get(), channel, &font, &bank, &program) != FLUID_OK) return;
+    auto& part = parts[static_cast<size_t>(channel)];
+    auto& state = engine.channels[static_cast<size_t>(channel)];
+    part.selection.store(packed(bank, program));
+    const bool playable = font == engine.font && any_of(engine.metadata->presets.begin(), engine.metadata->presets.end(),
+        [=](const Preset& p) { return p.bank == bank && p.program == program; });
+    state.lastSelection = playable ? packed(bank, program) : ~0u;
+    if (!playable) applyPart(engine, channel);
+    publishParameters(channel);
+}
+void FluidSynthModel::synchronisePart(Engine& engine, int channel) {
+    auto& part = parts[static_cast<size_t>(channel)];
+    auto& state = engine.channels[static_cast<size_t>(channel)];
+    for (int cc = 0; cc < 120; ++cc) {
+        int value = 0;
+        fluid_synth_get_cc(engine.synth.get(), channel, cc, &value);
+        if (!PartParameters::isTransaction(cc)) part.controllers[static_cast<size_t>(cc)].store(value);
+        state.appliedControllers[static_cast<size_t>(cc)] = value;
     }
-    publishParameters();
+    int pitch = 8192, range = 2;
+    fluid_synth_get_pitch_bend(engine.synth.get(), channel, &pitch);
+    fluid_synth_get_pitch_wheel_sens(engine.synth.get(), channel, &range);
+    part.pitch.store(pitch); part.range.store(range); part.pressure.store(state.pressure);
+    publishCurrentSelection(engine, channel);
+}
+FluidSynthModel::PartState FluidSynthModel::getPartState(int channel) const {
+    PartState result;
+    channel = juce::jlimit(0, partCount - 1, channel);
+    for (int cc = 0; cc < 120; ++cc)
+        result.controllers[static_cast<size_t>(cc)] = parts[static_cast<size_t>(channel)].controllers[static_cast<size_t>(cc)].load();
+    return result;
+}
+void FluidSynthModel::restorePartState(int channel, const PartState& state) {
+    if (channel < 0 || channel >= partCount) return;
+    for (int cc = 0; cc < 120; ++cc)
+        if (!PartParameters::isTransaction(cc) && !parts[static_cast<size_t>(channel)].ccParameters[static_cast<size_t>(cc)])
+            parts[static_cast<size_t>(channel)].controllers[static_cast<size_t>(cc)].store(state.controllers[static_cast<size_t>(cc)]);
+}
+void FluidSynthModel::clearExtraControllers() {
+    PartState defaults; defaults.controllers.fill(-1);
+    for (int channel = 0; channel < partCount; ++channel) restorePartState(channel, defaults);
 }
 FluidSynthModel::SoundFontState FluidSynthModel::getSoundFontState() const {
     lock_guard<mutex> lock(stateMutex);
     auto snapshot = committed;
-    snapshot.bankProgram = selection.load();
+    snapshot.bankProgram = parts[0].selection.load();
     return snapshot;
 }
 void FluidSynthModel::synchroniseUi() {
@@ -528,9 +570,7 @@ void FluidSynthModel::publishUi() {
         state = committed;
         metadata = publishedMetadata;
     }
-    const auto before = selection.load();
-    publishParameters();
-    if (selection.load() != before) uiDirty.store(true);
+    for (int channel = 0; channel < partCount; ++channel) publishParameters(channel);
     if (metadata != displayedMetadata) {
         ValueTree banks{"banks"};
         ValueTree bank;
@@ -554,7 +594,7 @@ void FluidSynthModel::publishUi() {
     target.setProperty("loadError", state.error, nullptr);
     target.setProperty("loading", loading.load(), nullptr);
 }
-int FluidSynthModel::getCurrentProgram() { return static_cast<int>(selection.load() & 0xffffu); }
+int FluidSynthModel::getCurrentProgram() { return static_cast<int>(parts[0].selection.load() & 0xffffu); }
 void FluidSynthModel::setCurrentProgram(int index) {
     *static_cast<AudioParameterInt*>(valueTreeState.getParameter("preset")) = juce::jlimit(0, 127, index);
 }
@@ -564,10 +604,19 @@ const String FluidSynthModel::getProgramName(int index) {
         lock_guard<mutex> lock(stateMutex);
         metadata = publishedMetadata;
     }
-    const auto bank = static_cast<int>(selection.load() >> 16);
+    const auto bank = static_cast<int>(parts[0].selection.load() >> 16);
     for (const auto& preset : metadata->presets)
         if (preset.bank == bank && preset.program == index) return preset.name;
     return "Preset " + String(index);
+}
+String FluidSynthModel::getPartName(int channel) const {
+    channel = juce::jlimit(0, partCount - 1, channel);
+    const auto current = parts[static_cast<size_t>(channel)].selection.load();
+    lock_guard<mutex> lock(stateMutex);
+    for (const auto& preset : publishedMetadata->presets)
+        if (preset.bank == static_cast<int>(current >> 16) && preset.program == static_cast<int>(current & 0xffffu))
+            return preset.name;
+    return publishedHasFont.load() ? "Preset unavailable" : "No SoundFont";
 }
 void FluidSynthModel::setSampleRate(float rate) {
     // Serialized host lifecycle callback, outside processBlock.
@@ -575,7 +624,8 @@ void FluidSynthModel::setSampleRate(float rate) {
     adoptWhileStopped();
     if (targetRate.load() == rate) return;
     targetRate.store(rate);
-    const auto state = captureChannel(*active);
+    array<ChannelSnapshot, partCount> state;
+    for (int channel = 0; channel < partCount; ++channel) state[static_cast<size_t>(channel)] = captureChannel(*active, channel);
     const auto saved = getSoundFontState();
     Request rebuild{saved.path, saved.bookmark, active->request};
     auto replacement = prepareFont(rebuild);
@@ -599,11 +649,15 @@ void FluidSynthModel::setSampleRate(float rate) {
         publishedMetadata = replacement->metadata;
         publishedHasFont.store(true);
         desiredEmpty.store(false);
-        auto expected = replacement->builtSelectionRequest;
-        selection.compare_exchange_strong(expected, replacement->preparedSelection);
+        for (int channel = 0; channel < partCount; ++channel) {
+            auto& part = replacement->channels[static_cast<size_t>(channel)];
+            auto expected = part.builtSelectionRequest;
+            parts[static_cast<size_t>(channel)].selection.compare_exchange_strong(expected, part.preparedSelection);
+        }
         uiDirty.store(true);
     }
-    restoreChannel(*replacement, state, false);
+    for (int channel = 0; channel < partCount; ++channel)
+        restoreChannel(*replacement, channel, state[static_cast<size_t>(channel)], false);
     active = std::move(replacement);
     applyControls(*active);
 }
@@ -639,11 +693,10 @@ void FluidSynthModel::blendRetiringEngine(AudioBuffer<float>& buffer, int start,
         if (fadeRemaining == 0) retireEngine(fading.release());
     }
 }
-FluidSynthModel::ChannelSnapshot FluidSynthModel::captureChannel(Engine& engine) {
+FluidSynthModel::ChannelSnapshot FluidSynthModel::captureChannel(Engine& engine, int channel) {
     auto& synth = engine.synth;
-    constexpr int channel = 0;
     ChannelSnapshot state;
-    state.pressure = engine.pressure;
+    state.pressure = engine.channels[static_cast<size_t>(channel)].pressure;
     for (int cc = 0; cc < 120; ++cc)
         fluid_synth_get_cc(synth.get(), channel, cc, &state.controllers[static_cast<size_t>(cc)]);
     for (int gen = 0; gen < GEN_LAST; ++gen)
@@ -653,44 +706,66 @@ FluidSynthModel::ChannelSnapshot FluidSynthModel::captureChannel(Engine& engine)
     return state;
 }
 
-void FluidSynthModel::restoreChannel(Engine& engine, const ChannelSnapshot& state, bool releasePedals) {
+void FluidSynthModel::restoreChannel(Engine& engine, int channel, const ChannelSnapshot& state, bool releasePedals) {
     auto& synth = engine.synth;
-    constexpr int channel = 0;
     // Restore ordinary controllers, never replay channel-mode commands or
     // RPN/NRPN data-entry transactions in numeric CC order.
     for (int cc = 0; cc < 120; ++cc) {
         if (cc == 6 || cc == 38 || (cc >= 96 && cc <= 101)) continue;
         const bool pedal = cc == 64 || cc == 66 || cc == 69;
-        fluid_synth_cc(synth.get(), channel, cc,
-            releasePedals && pedal ? 0 : state.controllers[static_cast<size_t>(cc)]);
+        const int desired = releasePedals && pedal ? 0 : state.controllers[static_cast<size_t>(cc)];
+        int current = 0;
+        fluid_synth_get_cc(synth.get(), channel, cc, &current);
+        if (current != desired) fluid_synth_cc(synth.get(), channel, cc, desired);
     }
-    for (int gen = 0; gen < GEN_LAST; ++gen)
-        fluid_synth_set_gen(synth.get(), channel, gen, state.generators[static_cast<size_t>(gen)]);
+    for (int gen = 0; gen < GEN_LAST; ++gen) {
+        const float desired = state.generators[static_cast<size_t>(gen)];
+        if (fluid_synth_get_gen(synth.get(), channel, gen) != desired)
+            fluid_synth_set_gen(synth.get(), channel, gen, desired);
+    }
     fluid_synth_pitch_wheel_sens(synth.get(), channel, state.pitchSensitivity);
     fluid_synth_pitch_bend(synth.get(), channel, state.pitch);
-    engine.pressure = state.pressure;
+    engine.channels[static_cast<size_t>(channel)].pressure = state.pressure;
     fluid_synth_channel_pressure(synth.get(), channel, state.pressure);
     // Leave data entry deselected. Complete tuning/SysEx and in-progress RPN
     // transactions need the future channel-state model; do not invent them here.
     fluid_synth_cc(synth.get(), channel, 101, 127);
     fluid_synth_cc(synth.get(), channel, 100, 127);
+    auto& applied = engine.channels[static_cast<size_t>(channel)];
+    for (int cc = 0; cc < 120; ++cc)
+        applied.appliedControllers[static_cast<size_t>(cc)] = releasePedals && (cc == 64 || cc == 66 || cc == 69)
+            ? 0 : state.controllers[static_cast<size_t>(cc)];
+    applied.appliedPitch = state.pitch;
+    applied.appliedPressure = state.pressure;
+    applied.appliedRange = state.pitchSensitivity;
 }
 
 void FluidSynthModel::resetEngine(Engine& engine) {
     auto& synth = engine.synth;
     if (!synth) return;
-    const auto savedChannel = captureChannel(engine);
-    int font = -1, bank = 0, program = 0;
-    const bool hadPreset = engine.font >= 0
-        && fluid_synth_get_program(synth.get(), 0, &font, &bank, &program) == FLUID_OK;
+    array<ChannelSnapshot, partCount> saved;
+    array<array<int, 3>, partCount> presets;
+    for (int channel = 0; channel < partCount; ++channel) {
+        saved[static_cast<size_t>(channel)] = captureChannel(engine, channel);
+        auto& preset = presets[static_cast<size_t>(channel)];
+        preset = {-1, 0, 0};
+        if (engine.font >= 0) fluid_synth_get_program(synth.get(), channel, &preset[0], &preset[1], &preset[2]);
+    }
     fluid_synth_system_reset(synth.get());
     // Voice-off ramps may feed the effects during the first render quantum.
     // Finish that ramp (plus any cached fragment), then clear the effects again.
     fluid_synth_process(synth.get(), 128, 0, nullptr, 0, nullptr);
     fluid_synth_system_reset(synth.get());
-    restoreChannel(engine, savedChannel, true);
-    if (hadPreset) fluid_synth_program_select(synth.get(), 0, font, bank, program);
-    engine.lastSelection = ~0u;
+    for (int channel = 0; channel < partCount; ++channel) {
+        restoreChannel(engine, channel, saved[static_cast<size_t>(channel)], true);
+        const auto& preset = presets[static_cast<size_t>(channel)];
+        if (preset[0] >= 0) fluid_synth_program_select(synth.get(), channel, preset[0], preset[1], preset[2]);
+        else fluid_synth_unset_program(synth.get(), channel);
+        engine.channels[static_cast<size_t>(channel)].lastSelection = ~0u;
+        // Host stop releases pedals without allowing cached GUI intent to re-hold them.
+        for (int cc : {64, 66, 69}) parts[static_cast<size_t>(channel)].controllers[static_cast<size_t>(cc)].store(0);
+        publishParameters(channel);
+    }
     // Control intent may already refer to a pending replacement. Reset this
     // engine's own preset without publishing a fallback into the shared intent.
     // Drain the bounded reset/mixer pipeline without exposing pre-reset audio.
@@ -700,7 +775,6 @@ void FluidSynthModel::resetEngine(Engine& engine) {
 
 void FluidSynthModel::handleSysEx(Engine& engine, const unsigned char* data, int size) {
     auto& synth = engine.synth;
-    constexpr int channel = 0;
     int handled = 0;
     const int result = fluid_synth_sysex(
         synth.get(),
@@ -716,28 +790,21 @@ void FluidSynthModel::handleSysEx(Engine& engine, const unsigned char* data, int
         const bool gsReset = size == 9 && data[0] == 0x41 && data[2] == 0x42
             && data[3] == 0x12 && data[4] == 0x40 && data[5] == 0
             && data[6] == 0x7f && data[7] == 0;
-        if (gmReset || gsReset) engine.pressure = 0;
-        // A GM/GS reset can change the synth without parameter callbacks.
-        // Publish its actual controls before resolving its program so
-        // applyControls cannot reapply values from before the reset.
-        for (const auto& entry : controllerToParam) {
-            int value = 0;
-            fluid_synth_get_cc(synth.get(), channel, static_cast<int>(entry.first), &value);
-            requestedControllers[static_cast<size_t>(entry.first)].store(value);
-            engine.appliedControllers[static_cast<size_t>(entry.first)] = value;
-            *static_cast<AudioParameterInt*>(valueTreeState.getParameter(entry.second)) = value;
+        for (int channel = 0; channel < partCount; ++channel) {
+            if (gmReset || gsReset) engine.channels[static_cast<size_t>(channel)].pressure = 0;
+            synchronisePart(engine, channel);
         }
-        publishCurrentSelection(engine);
     }
 }
 
 void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiMessages) {
     const juce::ScopedValueSetter<FluidSynthModel*> renderGuard(renderingModel, this);
     adoptPending();
+    if (routingChanged.exchange(false)) resetPlayback();
+    const bool omni = legacyOmni.load();
     auto& engine = *active;
     auto& synth = engine.synth;
     applyControls(engine);
-    constexpr int channel = 0;
     int rendered = 0;
     const auto renderUntil = [&](int end) {
         const int count = end - rendered;
@@ -783,6 +850,10 @@ void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiM
             continue; // Ignore incomplete SysEx rather than stripping a data byte.
         }
         const auto m = metadata.getMessage();
+        if (m.getChannel() < 1 || m.getChannel() > partCount) continue;
+        const int channel = omni ? 0 : m.getChannel() - 1;
+        auto& part = parts[static_cast<size_t>(channel)];
+        auto& channelState = engine.channels[static_cast<size_t>(channel)];
         DEBUG_PRINT(m.getDescription());
         
         if (m.isNoteOn()) {
@@ -804,20 +875,20 @@ void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiM
                 m.getControllerNumber(),
                 m.getControllerValue());
 
-            const int cc = m.getControllerNumber();
-            if (cc == 121) engine.pressure = 0;
-            if (controllerToParam.find(static_cast<fluid_midi_control_change>(cc)) != controllerToParam.end()) {
-                requestedControllers[static_cast<size_t>(cc)].store(m.getControllerValue());
-                engine.appliedControllers[static_cast<size_t>(cc)] = m.getControllerValue();
+            const int cc = m.getControllerNumber(), value = m.getControllerValue();
+            if (cc < 120) {
+                part.controllers[static_cast<size_t>(cc)].store(value);
+                channelState.appliedControllers[static_cast<size_t>(cc)] = value;
+                if (auto* parameter = part.ccParameters[static_cast<size_t>(cc)]) *parameter = value;
             }
-            fluid_midi_control_change controllerNum{static_cast<fluid_midi_control_change>(m.getControllerNumber())};
-            if (auto it{controllerToParam.find(controllerNum)};
-                it != end(controllerToParam)) {
-                String parameterID{it->second};
-                RangedAudioParameter *param{valueTreeState.getParameter(parameterID)};
-                jassert(dynamic_cast<AudioParameterInt*>(param) != nullptr);
-                AudioParameterInt* castParam{dynamic_cast<AudioParameterInt*>(param)};
-                *castParam = m.getControllerValue();
+            if (cc == 121) {
+                channelState.pressure = 0;
+                synchronisePart(engine, channel);
+            } else if (PartParameters::isTransaction(cc)) {
+                int range = 2;
+                fluid_synth_get_pitch_wheel_sens(synth.get(), channel, &range);
+                part.range.store(range);
+                *part.rangeParameter = range;
             }
         } else if (m.isProgramChange()) {
 #if JUCE_DEBUG
@@ -829,14 +900,20 @@ void FluidSynthModel::processBlock(AudioBuffer<float>& buffer, MidiBuffer& midiM
                 synth.get(),
                 channel,
                 m.getProgramChangeNumber())};
-            if (result == FLUID_OK) publishCurrentSelection(engine);
+            if (result == FLUID_OK) publishCurrentSelection(engine, channel);
         } else if (m.isPitchWheel()) {
+            part.pitch.store(m.getPitchWheelValue());
+            *part.pitchParameter = m.getPitchWheelValue();
+            channelState.appliedPitch = m.getPitchWheelValue();
             fluid_synth_pitch_bend(
                 synth.get(),
                 channel,
                 m.getPitchWheelValue());
         } else if (m.isChannelPressure()) {
-            engine.pressure = m.getChannelPressureValue();
+            channelState.pressure = m.getChannelPressureValue();
+            part.pressure.store(m.getChannelPressureValue());
+            *part.pressureParameter = m.getChannelPressureValue();
+            channelState.appliedPressure = m.getChannelPressureValue();
             fluid_synth_channel_pressure(
                 synth.get(),
                 channel,

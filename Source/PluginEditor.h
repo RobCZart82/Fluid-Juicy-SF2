@@ -17,6 +17,7 @@
 #include "FilePicker.h"
 #include "SlidersComponent.h"
 #include "MyColours.h"
+#include "PartMixer.h"
 
 using juce::SurjectiveMidiKeyboardComponent;
 
@@ -43,6 +44,7 @@ public:
 
 private:
     void timerCallback() override;
+    void selectPart(int part);
 
     // This reference is provided as a quick way for your editor to
     // access the processor object that created it.
@@ -52,6 +54,11 @@ private:
 
     MyColours colours;
     SurjectiveMidiKeyboardComponent midiKeyboard;
+    juce::ComboBox partSelector;
+    juce::Label partName;
+    juce::TextButton mixerButton{"Mixer"}, routingButton;
+    int displayedPart = -1;
+    PartMixer mixer;
     TablesComponent tablesComponent;
     FilePicker filePicker;
     SlidersComponent slidersComponent;

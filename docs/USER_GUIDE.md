@@ -1,15 +1,17 @@
 # Using Fluid Juicy SF2
 
 Fluid Juicy SF2 is a development-preview SF2/SF3 instrument for VST3 hosts and
-standalone use. No SoundFont is included. The current instrument is single-part;
-16-part GM2/GS operation is a future feature.
+standalone use. No SoundFont is included. New instances offer 16 independent MIDI parts using one shared SoundFont.
+See [16-part setup, mixer and migration](MULTITIMBRAL.md). Full GM2/GS conformance
+is a separate development goal.
 
 ## Load and play
 
 Load **Fluid Juicy SF2 (RobCZart82)** in REAPER or another VST3 host, or open the
 standalone application. Use the file picker or drag an SF2/SF3 file onto it.
 The current bank keeps playing during background preparation; a failed change
-keeps a working bank. Select the bank and preset, then send MIDI notes.
+keeps a working bank. Select a Part, then its bank and preset, and send MIDI on that part's channel.
+Use Mixer for per-part volume, pan and expression.
 In standalone, choose devices under **Options → Audio/MIDI settings**.
 
 **Output** controls the final level, with a -12 dB default for new instances.

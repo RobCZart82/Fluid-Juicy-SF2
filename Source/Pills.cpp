@@ -3,6 +3,7 @@
 //
 
 #include "Pills.h"
+#include "PartParameters.h"
 #include <set>
 
 Pills::Pills(AudioProcessorValueTreeState& valueTreeState)
@@ -45,7 +46,7 @@ void Pills::resized()
 
 int Pills::currentBank() const
 {
-    return static_cast<int>(valueTreeState.getRawParameterValue("bank")->load());
+    return static_cast<int>(valueTreeState.getRawParameterValue(bankID)->load());
 }
 
 void Pills::timerCallback()
@@ -105,11 +106,17 @@ void Pills::selectBank(int bank)
     {
         if (static_cast<int>(entry.getProperty("num")) == bank && entry.getNumChildren() > 0)
         {
-            *static_cast<AudioParameterInt*>(valueTreeState.getParameter("bank")) = bank;
-            *static_cast<AudioParameterInt*>(valueTreeState.getParameter("preset")) =
+            *static_cast<AudioParameterInt*>(valueTreeState.getParameter(bankID)) = bank;
+            *static_cast<AudioParameterInt*>(valueTreeState.getParameter(presetID)) =
                 static_cast<int>(entry.getChild(0).getProperty("num"));
             refreshSelection();
             return;
         }
     }
+}
+
+void Pills::setPart(int part) {
+    bankID = PartParameters::id(part, "bank");
+    presetID = PartParameters::id(part, "preset");
+    refreshSelection();
 }
