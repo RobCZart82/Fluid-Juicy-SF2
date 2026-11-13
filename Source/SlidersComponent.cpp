@@ -53,7 +53,8 @@ void SlidersComponent::resized() {
     const int labelHeight{25};
     const int sliderWidth{30};
     Rectangle<int> r{getLocalBounds()};
-    auto output = r.removeFromBottom(40).reduced(4, 2);
+    auto output = r.removeFromBottom(62).reduced(4, 2);
+    outputMeter.setBounds(output.removeFromBottom(18));
     outputGainLabel.setBounds(output.removeFromLeft(48));
     outputGainSlider.setBounds(output);
     Rectangle<int> rEnvelope{r.removeFromLeft(envelopeSliders * sliderWidth + (envelopeSliders-1) * sliderXMargin + 2 * groupXPadding)};
@@ -104,6 +105,8 @@ SlidersComponent::SlidersComponent(
 , envelopeGroup{"envelopeGroup", "Envelope"}
 , filterGroup{"filterGroup", "Filter"}
 {
+    addAndMakeVisible(outputMeter);
+    outputMeter.onClear = [this] { if (onClearOutputOver) onClearOutputOver(); };
     outputGainSlider.setSliderStyle(Slider::LinearHorizontal);
     outputGainSlider.setTextBoxStyle(Slider::TextBoxRight, false, 65, 22);
     outputGainSlider.setTextValueSuffix(" dB");

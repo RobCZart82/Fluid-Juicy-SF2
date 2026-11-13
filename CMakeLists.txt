@@ -72,6 +72,9 @@ if(JUICY_BUILD_TESTS)
         "${CMAKE_BINARY_DIR}/test-sine.sf2" COMMAND_ERROR_IS_FATAL ANY)
     add_test(NAME processor-regressions COMMAND JuicyRegressionTests "${CMAKE_BINARY_DIR}/test-sine.sf2")
     set_tests_properties(processor-regressions PROPERTIES TIMEOUT 30)
+    add_test(NAME bank-acceptance-harness-smoke COMMAND JuicyRegressionTests --bank-smoke
+        "${CMAKE_BINARY_DIR}/test-parts.sf2" "${CMAKE_BINARY_DIR}/bank-acceptance-smoke.json")
+    set_tests_properties(bank-acceptance-harness-smoke PROPERTIES TIMEOUT 30)
     add_test(NAME exported-source-regressions COMMAND "${Python3_EXECUTABLE}"
         "${CMAKE_SOURCE_DIR}/tests/BuildSourceTests.py")
     add_test(NAME source-packaging-regressions COMMAND "${Python3_EXECUTABLE}"

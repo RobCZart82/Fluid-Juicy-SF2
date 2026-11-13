@@ -241,6 +241,39 @@ inline int runPartTests(const String& fixture) {
               "recall without extra controllers resets old live CC state instead of inheriting it");
     }
     {
+        JuicySFAudioProcessor bankRecall;
+        bankRecall.prepareToPlay(44100, 8192);
+        bankRecall.getFluidSynthModel().loadSoundFont(fixture, {});
+        MidiBuffer change;
+        change.addEvent(MidiMessage::controllerEvent(2, 0, 8), 0);
+        change.addEvent(MidiMessage::programChange(2, 1), 0);
+        render(bankRecall, change);
+        set(bankRecall, 1, "bank", 0);
+        set(bankRecall, 1, "preset", 0);
+        render(bankRecall, empty); // GUI bank change overrides the previous MIDI bank selection.
+        const auto selected = save(bankRecall);
+        MidiBuffer bankOnly;
+        bankOnly.addEvent(MidiMessage::controllerEvent(2, 0, 8), 0);
+        render(bankRecall, bankOnly);
+        MidiBuffer laterProgram;
+        laterProgram.addEvent(MidiMessage::programChange(2, 1), 0);
+        laterProgram.addEvent(MidiMessage::noteOn(2, 69, static_cast<juce::uint8>(100)), 0);
+        const auto normalMIDI = render(bankRecall, laterProgram);
+        check(bankRecall.getFluidSynthModel().getBankProgram(1) == ((8u << 16) | 1u)
+                  && amplitude(normalMIDI, 880) > 0.001,
+              "ordinary MIDI Bank Select can still precede Program Change in a later block");
+        JuicySFAudioProcessor afterRecall;
+        afterRecall.prepareToPlay(44100, 8192);
+        restore(afterRecall, *selected);
+        MidiBuffer programOnly;
+        programOnly.addEvent(MidiMessage::programChange(2, 0), 0);
+        programOnly.addEvent(MidiMessage::noteOn(2, 69, static_cast<juce::uint8>(100)), 0);
+        const auto actual = render(afterRecall, programOnly);
+        check(afterRecall.getFluidSynthModel().getBankProgram(1) == 0
+                  && amplitude(actual, 440) > 0.001 && amplitude(actual, 880) < 0.001,
+              "recall keeps a GUI-selected bank authoritative over older MIDI bank-select CC history");
+    }
+    {
         auto legacy = save(reopened);
         legacy->removeAttribute("routing"); legacy->removeAttribute("partFormat");
         legacy->removeChildElement(legacy->getChildByName("partControllers"), true);

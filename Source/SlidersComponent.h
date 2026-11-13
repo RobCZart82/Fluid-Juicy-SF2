@@ -2,6 +2,7 @@
 
 #include "JuceHeader.h"
 #include "FluidSynthModel.h"
+#include "OutputMeter.h"
 
 using namespace std;
 using SliderAttachment = AudioProcessorValueTreeState::SliderAttachment;
@@ -16,6 +17,8 @@ public:
 
     void resized() override;
     void setPart(int part);
+    void updateOutputMeter(float peak, bool over) { outputMeter.update(peak, over); }
+    std::function<void()> onClearOutputOver;
 
     const int getDesiredWidth();
 
@@ -27,6 +30,7 @@ private:
     AudioProcessorValueTreeState& valueTreeState;
     FluidSynthModel& fluidSynthModel;
 
+    OutputMeter outputMeter;
     Slider outputGainSlider;
     Label outputGainLabel;
     unique_ptr<SliderAttachment> outputGainAttachment;

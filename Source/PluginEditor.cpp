@@ -53,6 +53,7 @@ JuicySFAudioProcessorEditor::JuicySFAudioProcessorEditor(
     selectPart(processor.getFluidSynthModel().getChannel());
     partSelector.setEnabled(!processor.getFluidSynthModel().isLegacyOmni());
     mixerButton.setEnabled(!processor.getFluidSynthModel().isLegacyOmni());
+    slidersComponent.onClearOutputOver = [this] { processor.clearOutputOver(); };
     filePicker.onLayoutChanged = [this] { resized(); };
     const auto restoredSize = processor.getEditorSize();
     setLookAndFeel(&colours);
@@ -83,6 +84,7 @@ JuicySFAudioProcessorEditor::JuicySFAudioProcessorEditor(
 }
 
 void JuicySFAudioProcessorEditor::timerCallback() {
+    slidersComponent.updateOutputMeter(processor.consumeOutputPeak(), processor.hasOutputOver());
     auto& model = processor.getFluidSynthModel();
     model.synchroniseUi();
     partSelector.setEnabled(!model.isLegacyOmni());
