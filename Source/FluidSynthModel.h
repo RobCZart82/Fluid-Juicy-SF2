@@ -49,7 +49,6 @@ public:
     void changeProgramName(int, const String&) {}
     unsigned int getBankProgram() const { return selection.load(); }
 #if JUICY_ENABLE_TEST_HOOKS
-    fluid_synth_t* getActiveSynthForTests() { return active->synth.get(); }
     int getPressureForTests() const { return active->pressure; }
     void setLoadDelayForTests(int ms) { loadDelay.store(ms); }
     void pauseLoadsForTests(bool pause) { loadPaused.store(pause); requestReady.notify_all(); }

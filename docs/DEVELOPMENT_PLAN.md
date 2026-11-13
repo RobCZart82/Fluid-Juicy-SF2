@@ -74,9 +74,10 @@ The chooser scans only the immediate files in the configured folders. It
 skips symbolic links and inaccessible files, accepts case-insensitive SF2/SF3
 extensions, and stops at 10,000 directory entries or 256 results. It reports
 a reached limit and leaves Browse available for other banks. It creates no
-folders and bundles no banks. Editor destruction requests cancellation and
-joins the scanner before releasing its callback. A filesystem operation already
-in progress may delay that join.
+folders and bundles no banks. Editor destruction invalidates the scan generation and releases its callback
+without joining the processor-owned worker. Refresh queues only the newest
+request. A filesystem operation already in progress can delay that new request
+and full processor teardown, which still joins the worker before module unload.
 
 Use Add folder to choose up to 16 additional folders. Remove folder forgets a
 remembered location and leaves its bank files intact. The folder list is a
