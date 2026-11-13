@@ -26,6 +26,38 @@ inline int runReviewFixTests(const String& fixture) {
     };
     {
         JuicySFAudioProcessor target;
+        target.prepareToPlay(44100, 512);
+        auto& model = target.getFluidSynthModel();
+        check(model.loadSoundFont(fixture, {}), "long SysEx fixture loads");
+        target.prepareToPlay(44100, 512);
+        target.setCurrentProgram(1);
+        AudioBuffer<float> block(2, 512);
+        MidiBuffer midi;
+        // Noncommercial manufacturer ID; deliberately unsupported by FluidSynth.
+        std::vector<uint8_t> payload(16384, 1);
+        payload[0] = 0x7d;
+        midi.addEvent(MidiMessage::createSysExMessage(payload.data(), static_cast<int>(payload.size())), 0);
+        midi.addEvent(MidiMessage::noteOn(1, 69, static_cast<juce::uint8>(100)), 32);
+        midi.addEvent(MidiMessage::createSysExMessage(payload.data(), static_cast<int>(payload.size())), 256);
+        target.processBlock(block, midi);
+        bool finite = true;
+        int firstSignal = -1;
+        for (int i = 0; i < block.getNumSamples(); ++i) {
+            finite = finite && std::isfinite(block.getSample(0, i)) && std::isfinite(block.getSample(1, i));
+            if (firstSignal < 0 && std::abs(block.getSample(0, i)) > 1.0e-8f) firstSignal = i;
+        }
+        check(finite && block.getMagnitude(0, 512) > 0.01f && firstSignal >= 33 && firstSignal <= 96,
+              "long unknown SysEx preserves finite audible notes and MIDI dispatch timing");
+        check(model.getBankProgram() == 1 && midi.isEmpty(),
+              "unknown SysEx leaves preset selection intact and MIDI output cleared");
+        const uint8_t incomplete[] = {0xf0, 0x7d, 1, 2};
+        midi.addEvent(incomplete, sizeof(incomplete), 0);
+        target.processBlock(block, midi);
+        check(model.getBankProgram() == 1 && block.getMagnitude(0, 512) > 0.01f,
+              "unterminated SysEx is ignored without stopping the active voice");
+    }
+    {
+        JuicySFAudioProcessor target;
         target.prepareToPlay(44100, 256);
         auto& model = target.getFluidSynthModel();
         const auto pressureFixture = File(fixture).getSiblingFile("test-pressure.sf2").getFullPathName();
