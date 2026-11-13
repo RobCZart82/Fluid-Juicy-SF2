@@ -11,13 +11,16 @@ keeping its familiar interface and bank/preset browser.
 ## Features
 
 - SF2 and SF3 SoundFont playback.
-- Bank and preset selection, on-screen keyboard and MIDI input.
+- 16 MIDI parts with independent bank/preset selection and a shared SoundFont.
+- Per-part volume, pan and expression mixer; on-screen keyboard and MIDI input.
 - Background SoundFont loading with recovery after a failed bank change.
 - Filter, envelope and automatable output-level controls.
 - VST3 plug-in and standalone application.
 - Build targets: macOS Apple Silicon, macOS Intel and Windows x64.
 
-The current instrument is single-part. Full 16-part GM2/GS support is planned.
+New instances use 16-part MIDI routing; historical projects retain Legacy omni
+routing until explicitly converted. See [multitimbral setup and limits](docs/MULTITIMBRAL.md).
+Full GM2/GS conformance remains a separate development goal.
 
 ## Download
 

@@ -21,6 +21,7 @@ public:
     );
 
     void resized() override;
+    void setPart(int part) { banks.setPart(part); presetTable.setPart(part); }
 
     bool keyPressed(const KeyPress &key) override;
 

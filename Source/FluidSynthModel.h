@@ -2,6 +2,7 @@
 #pragma once
 #include "JuceHeader.h"
 #include "MidiConstants.h"
+#include "PartParameters.h"
 #include "MacFileAccess.h"
 #include <fluidsynth.h>
 #include <array>
@@ -21,7 +22,21 @@ public:
     explicit FluidSynthModel(AudioProcessorValueTreeState&);
     ~FluidSynthModel() override;
     void initialise();
-    int getChannel() { return 0; }
+    static constexpr int partCount = PartParameters::count;
+    int getChannel() const { return selectedPart.load(); }
+    void setSelectedPart(int part) { selectedPart.store(juce::jlimit(0, partCount - 1, part)); }
+    bool isLegacyOmni() const { return legacyOmni.load(); }
+    void setLegacyOmni(bool legacy, bool userEdit = false) {
+        if (!userEdit) routingChanged.store(false);
+        if (legacyOmni.exchange(legacy) != legacy && userEdit) {
+            hostStateChanged.store(true);
+            routingChanged.store(true);
+        }
+    }
+    struct PartState { array<int, 120> controllers{}; };
+    PartState getPartState(int part) const;
+    void restorePartState(int part, const PartState&);
+    void clearExtraControllers();
     void setControllerValue(int controller, int value);
     void processBlock(AudioBuffer<float>&, MidiBuffer&);
     // Host lifecycle methods: the host must have stopped processBlock.
@@ -46,10 +61,14 @@ public:
     int getCurrentProgram();
     void setCurrentProgram(int);
     const String getProgramName(int);
+    String getPartName(int part) const;
     void changeProgramName(int, const String&) {}
-    unsigned int getBankProgram() const { return selection.load(); }
+    unsigned int getBankProgram(int part = 0) const { return parts[static_cast<size_t>(juce::jlimit(0, partCount - 1, part))].selection.load(); }
 #if JUICY_ENABLE_TEST_HOOKS
-    int getPressureForTests() const { return active->pressure; }
+    int getPressureForTests() const { return active->channels[0].pressure; }
+    int getControllerForTests(int channel, int cc) const {
+        int value = -1; fluid_synth_get_cc(active->synth.get(), channel, cc, &value); return value;
+    }
     void setLoadDelayForTests(int ms) { loadDelay.store(ms); }
     void pauseLoadsForTests(bool pause) { loadPaused.store(pause); requestReady.notify_all(); }
     unsigned int getUiViolationsForTests() const { return uiViolations.load(); }
@@ -61,6 +80,22 @@ public:
 private:
     struct Preset { int bank, program; String name; };
     struct Metadata { vector<Preset> presets; };
+    struct Channel {
+        int pressure = 0;
+        unsigned int lastSelection = ~0u;
+        unsigned int builtSelectionRequest = 0, preparedSelection = 0;
+        array<int, 128> appliedControllers{};
+        int appliedPitch = -1, appliedPressure = -1, appliedRange = -1;
+    };
+    struct Part {
+        atomic<unsigned int> selection{0};
+        array<atomic<int>, 128> controllers;
+        atomic<int> pitch{8192}, pressure{0}, range{2};
+        array<AudioParameterInt*, 128> ccParameters{};
+        AudioParameterInt *bank = nullptr, *preset = nullptr, *pitchParameter = nullptr,
+            *pressureParameter = nullptr, *rangeParameter = nullptr;
+    };
+    struct Binding { int part, kind; }; // CC >= 0; bank/preset/pitch/pressure/range use -1..-5.
     struct Engine {
         explicit Engine(FluidSynthModel* model) : owner(model) { ++owner->liveEngines; }
         ~Engine();
@@ -73,13 +108,10 @@ private:
 #endif
         unique_ptr<fluid_settings_t, decltype(&delete_fluid_settings)> settings{nullptr, delete_fluid_settings};
         unique_ptr<fluid_synth_t, decltype(&delete_fluid_synth)> synth{nullptr, delete_fluid_synth};
-        int pressure = 0;
+        array<Channel, partCount> channels;
         int font = -1;
         float rate = 44100;
         uint64_t request = 0;
-        unsigned int lastSelection = ~0u;
-        unsigned int builtSelectionRequest = 0, preparedSelection = 0;
-        array<int, 128> appliedControllers{};
         shared_ptr<const Metadata> metadata;
         String path;
         MemoryBlock bookmark;
@@ -108,17 +140,18 @@ private:
     void adoptPending();
     void adoptWhileStopped();
     void applyControls(Engine&);
+    void applyPart(Engine&, int, bool publishSelection = true, bool applyControllers = true);
+    void synchronisePart(Engine&, int);
     void handleSysEx(Engine&, const unsigned char*, int);
     void blendRetiringEngine(AudioBuffer<float>&, int start, int count, bool silent);
-    void publishCurrentSelection(Engine&);
-    void publishParameters();
+    void publishCurrentSelection(Engine&, int channel);
+    void publishParameters(int channel = 0);
     void publishUi();
-    ChannelSnapshot captureChannel(Engine&);
-    void restoreChannel(Engine&, const ChannelSnapshot&, bool releasePedals);
+    ChannelSnapshot captureChannel(Engine&, int channel);
+    void restoreChannel(Engine&, int channel, const ChannelSnapshot&, bool releasePedals);
     void resetEngine(Engine&);
     static unsigned int packed(int bank, int program) { return (static_cast<unsigned int>(bank) << 16) | static_cast<unsigned int>(program); }
-    static const map<fluid_midi_control_change, String> controllerToParam;
-    static const map<String, fluid_midi_control_change> paramToController;
+    map<String, Binding> bindings;
     static thread_local FluidSynthModel* publishingSelection;
     static thread_local FluidSynthModel* renderingModel;
     AudioProcessorValueTreeState& valueTreeState;
@@ -136,8 +169,9 @@ private:
     condition_variable engineAvailable;
     static constexpr unsigned int engineBudget = 4;
     atomic<float> targetRate{44100};
-    atomic<unsigned int> selection{0};
-    array<atomic<int>, 128> requestedControllers;
+    array<Part, partCount> parts;
+    atomic<int> selectedPart{0};
+    atomic<bool> legacyOmni{false}, routingChanged{false};
     atomic<bool> hostStateChanged{false};
     atomic<bool> desiredEmpty{true}, publishedHasFont{false}, loading{false}, uiDirty{true};
     atomic<uint64_t> latestRequest{0}, activeRequest{0}, unloadEpoch{0};

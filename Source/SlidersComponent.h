@@ -15,6 +15,7 @@ public:
     ~SlidersComponent();
 
     void resized() override;
+    void setPart(int part);
 
     const int getDesiredWidth();
 

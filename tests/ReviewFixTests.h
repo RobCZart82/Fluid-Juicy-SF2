@@ -247,9 +247,9 @@ inline int runReviewFixTests(const String& fixture) {
     }
     {
         JuicySFAudioProcessor fresh, legacy;
-        check(fresh.getParameters().getLast()->getName(32) == "Output level"
+        check(fresh.getParameters()[8]->getName(32) == "Output level"
                   && fresh.getParameters().getFirst()->getName(64).contains("bank"),
-              "output parameter is appended after all existing parameter indices");
+              "historical Output parameter retains index 8 after appending part controls");
         auto oldState = save(fresh);
         oldState->getChildByName("params")->removeAttribute("outputGain");
         restore(legacy, *oldState);

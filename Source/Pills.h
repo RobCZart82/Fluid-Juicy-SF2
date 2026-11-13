@@ -15,6 +15,7 @@ public:
     ~Pills() override;
 
     void cycle(bool right);
+    void setPart(int part);
 
 private:
     void resized() override;
@@ -25,6 +26,7 @@ private:
     void refreshSelection();
     void selectBank(int bank);
 
+    String bankID{"bank"}, presetID{"preset"};
     AudioProcessorValueTreeState& valueTreeState;
     juce::ComboBox bankList;
     TextButton previousBank{String::charToString(0x2039)};

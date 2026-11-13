@@ -43,6 +43,7 @@ public:
     ~TableComponent();
 
     int getNumRows() override;
+    void setPart(int part);
 
     void paintRowBackground (
             Graphics& g,
@@ -92,6 +93,7 @@ private:
     void selectCurrentPreset();
     void fitColumnsToViewport();
 
+    String bankID{"bank"}, presetID{"preset"};
     AudioProcessorValueTreeState& valueTreeState;
 
     TableListBox table;     // the table component itself

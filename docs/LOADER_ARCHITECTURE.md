@@ -2,8 +2,9 @@
 
 This implementation follows the A09/F05 design gates from the audit of
 `8f33ca5`. It replaces shared mutation of one synth with prepared-engine
-handover. It does not implement 16-part routing or sample-accurate FluidSynth
-event timing.
+handover. The 16-part extension retains one shared bank/engine and sixteen
+independent channel states; see [multitimbral behavior](MULTITIMBRAL.md).
+Sample-accurate FluidSynth event timing remains outside this handover protocol.
 
 ## User behavior
 
@@ -16,7 +17,9 @@ request cannot restore a bank after an unload.
 A successful GUI replacement fades the old engine out and the new one in over 512
 samples. A newer replacement can supersede that fade. Existing voices belong to the old engine and stop after that fade;
 they are not transferred to the new bank. Ordinary controller/pitch/generator
-state is transferred. A bank/program absent from the new bank resolves to its
+state is transferred for all sixteen channels on GUI bank handover. Synchronous
+project recall starts from a fresh engine and applies the saved intents, preventing
+unrelated live controllers from leaking into a restored project. A bank/program absent from the new bank resolves to its
 first preset in that bank, or the first playable preset overall; it must not
 leave a successfully loaded instrument with a null preset. Complete RPN transactions, custom tuning and full GM2
 state are still outside the current channel-state model.
@@ -71,8 +74,8 @@ parameter notifications or the entire render path are allocation-free.
 ## State and UI delivery
 
 The committed path/bookmark/error and immutable preset metadata are copied under
-a control-side state mutex. Persistence reads this snapshot, including one
-packed bank/program word. Editor dimensions use a separate packed atomic value.
+a control-side state mutex. Persistence reads this snapshot, including sixteen independent
+packed bank/program words. Editor dimensions use a separate packed atomic value.
 No worker writes the GUI's ValueTree or resizes a component.
 
 The editor's message-thread timer consumes a coalesced dirty flag, builds the GUI

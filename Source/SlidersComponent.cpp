@@ -194,3 +194,14 @@ SlidersComponent::SlidersComponent(
     addAndMakeVisible(envelopeGroup);
     addAndMakeVisible(filterGroup);
 }
+
+void SlidersComponent::setPart(int part) {
+    attackSliderAttachment.reset(); decaySliderAttachment.reset(); sustainSliderAttachment.reset();
+    releaseSliderAttachment.reset(); filterCutOffSliderAttachment.reset(); filterResonanceSliderAttachment.reset();
+    attackSliderAttachment = make_unique<SliderAttachment>(valueTreeState, PartParameters::id(part, "attack"), attackSlider);
+    decaySliderAttachment = make_unique<SliderAttachment>(valueTreeState, PartParameters::id(part, "decay"), decaySlider);
+    sustainSliderAttachment = make_unique<SliderAttachment>(valueTreeState, PartParameters::id(part, "sustain"), sustainSlider);
+    releaseSliderAttachment = make_unique<SliderAttachment>(valueTreeState, PartParameters::id(part, "release"), releaseSlider);
+    filterCutOffSliderAttachment = make_unique<SliderAttachment>(valueTreeState, PartParameters::id(part, "filterCutOff"), filterCutOffSlider);
+    filterResonanceSliderAttachment = make_unique<SliderAttachment>(valueTreeState, PartParameters::id(part, "filterResonance"), filterResonanceSlider);
+}

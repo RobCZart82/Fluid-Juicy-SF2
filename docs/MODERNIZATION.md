@@ -6,7 +6,8 @@ Date: 2026-11-10. Upstream baseline: `c95eb5755aab634a22dfa778912facd136590d5c`.
 
 ## Intent
 
-Fluid Juicy SF2 updates the existing Juicy SF Plugin for native Apple Silicon. Preserve the existing layout, keyboard, browser, controls, parameter names and XML state shape. This change does not turn the instrument into a 16-channel GM2 module.
+Fluid Juicy SF2 updates the existing Juicy SF Plugin for native Apple Silicon. Preserve the existing layout, keyboard, browser, controls, parameter names and XML state shape. The subsequent 16-part extension is described in [multitimbral setup](MULTITIMBRAL.md);
+it does not claim complete GM2/GS conformance.
 
 ## Evidence and outstanding acceptance
 
@@ -97,6 +98,7 @@ engines and file-access scopes are reclaimed outside rendering. Host state
 restoration remains a synchronous non-real-time operation for offline readiness.
 UI models, program-name queries and persistence use separate snapshots rather
 than shared raw synth/font pointers. See [ownership, ordering and test limits](LOADER_ARCHITECTURE.md).
+Sixteen-part MIDI routing and state are now implemented; see [setup and migration](MULTITIMBRAL.md).
 The 64-sample MIDI timing limitation and full GM2/GS acceptance remain open.
 
 ## Output level and recall compatibility

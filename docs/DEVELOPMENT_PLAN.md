@@ -12,8 +12,9 @@ Current audit and implementation status: [bug ledger](BUG_LEDGER.md) · [2026-11
    and parameter notifications on audio paths, and stress bank changes/offline render.
 4. **Distribution:** Windows 10 and minimum macOS clean-machine tests, runtime
    dependencies, signing/notarization and installation/upgrade behavior.
-5. **Multitimbral design:** specify 16-part routing, per-part bank/program/state
-   and GM2/GS behavior after the single-part acceptance gates pass.
+5. **Multitimbral acceptance:** 16-part routing, per-part bank/program/state and
+   mixer are implemented on the development branch; validate real banks and
+   16-track REAPER routing. Full GM2/GS conformance remains a separate gate.
 
 CI success covers its automated checks, not every DAW or SoundFont. No stable
 release is implied by this plan. Original plugin IDs/state remain preserved.
@@ -130,3 +131,13 @@ Tests attach a host listener, query saved state reentrantly from the notificatio
 and verify missing-media recovery and absence of worker/audio-thread delivery.
 Verify the actual modified-project indicator and close/save prompt in REAPER on
 each target platform before release.
+
+### 16-part development
+
+See [multitimbral architecture, user setup and acceptance](MULTITIMBRAL.md).
+A shared engine/bank now has independent channel state for all sixteen MIDI parts,
+with a part selector and CC7/CC10/CC11 mixer. Historical projects import in Legacy
+omni mode; existing parameter indices/IDs remain stable. Channel 10 defaults to
+bank 128 without inventing a kit when none exists. The first release still needs
+real-bank/host acceptance and installation/distribution work; this branch does
+not publish v1.0.0 or claim complete GM2/GS conformance.
