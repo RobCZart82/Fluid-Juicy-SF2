@@ -170,12 +170,11 @@ normal platform workflows run these tests as part of the complete suite.
 This synthetic mono sample does not establish arbitrary third-party SF3 bank
 compatibility or replace manual REAPER checks on each target platform.
 
-### Planned: increase the minimum editor size by 10%
+### Planned: minimum editor size of 600 × 370
 
 User request recorded on 2026-11-14; implementation is pending for v1.0.0.
-Increase the plugin editor's minimum width by 10% and its minimum height by
-10%, independently. The current `GuiConstants` minimum is 575 × 345 logical
-pixels; round each new limit upward to give a minimum of **633 × 380**.
+Set the plugin editor's new minimum base size to **600 × 370 logical pixels**
+(width × height), replacing the current `GuiConstants` minimum of 575 × 345.
 
 When implementing, apply the limits consistently to host resizing and restored
 editor sizes, including projects that saved a smaller window. Verify readable,
