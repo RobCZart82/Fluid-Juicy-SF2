@@ -9,6 +9,7 @@
 #include "PartTests.h"
 #include "BankAcceptance.h"
 #include "OutputMeterTests.h"
+#include "SF3Tests.h"
 #include "../Source/SoundFontLibrary.h"
 #include "../Source/SoundFontFolders.h"
 
@@ -23,6 +24,8 @@ int main(int argc, char** argv) {
     juce::ScopedJuceInitialiser_GUI initialise;
     if (argc == 4 && (String(argv[1]) == "--bank-audit" || String(argv[1]) == "--bank-smoke"))
         return runBankAcceptance(argv[2], argv[3], String(argv[1]) == "--bank-audit");
+    if (argc == 3 && String(argv[1]) == "--sf3-regressions")
+        return runSF3Tests(argv[2]) == 0 ? 0 : 1;
     int failures = 0;
     const auto check = [&](bool ok, const char* description) {
         std::cout << (ok ? "PASS " : "FAIL ") << description << std::endl;

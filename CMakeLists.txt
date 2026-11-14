@@ -70,6 +70,19 @@ if(JUICY_BUILD_TESTS)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS tests/make_fixture.py)
     execute_process(COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/make_fixture.py"
         "${CMAKE_BINARY_DIR}/test-sine.sf2" COMMAND_ERROR_IS_FATAL ANY)
+    # Exercise the pinned codec stack with original data, without shipping a bank.
+    add_executable(JuicySF3Fixture tests/MakeVorbisFixture.cpp)
+    target_compile_features(JuicySF3Fixture PRIVATE cxx_std_17)
+    target_link_libraries(JuicySF3Fixture PRIVATE SndFile::sndfile)
+    add_dependencies(JuicyRegressionTests JuicySF3Fixture)
+    add_test(NAME sf3-vorbis-fixture COMMAND JuicySF3Fixture "${CMAKE_BINARY_DIR}/test-sine.ogg")
+    set_tests_properties(sf3-vorbis-fixture PROPERTIES FIXTURES_SETUP sf3Vorbis TIMEOUT 15)
+    add_test(NAME sf3-bank-fixture COMMAND "${Python3_EXECUTABLE}" "${CMAKE_SOURCE_DIR}/tests/make_fixture.py"
+        "${CMAKE_BINARY_DIR}/test-parts.sf3" --vorbis "${CMAKE_BINARY_DIR}/test-sine.ogg")
+    set_tests_properties(sf3-bank-fixture PROPERTIES FIXTURES_REQUIRED sf3Vorbis FIXTURES_SETUP sf3Bank TIMEOUT 15)
+    add_test(NAME sf3-processor-regressions COMMAND JuicyRegressionTests --sf3-regressions
+        "${CMAKE_BINARY_DIR}/test-parts.sf3")
+    set_tests_properties(sf3-processor-regressions PROPERTIES FIXTURES_REQUIRED sf3Bank TIMEOUT 30)
     add_test(NAME processor-regressions COMMAND JuicyRegressionTests "${CMAKE_BINARY_DIR}/test-sine.sf2")
     set_tests_properties(processor-regressions PROPERTIES TIMEOUT 30)
     add_test(NAME bank-acceptance-harness-smoke COMMAND JuicyRegressionTests --bank-smoke
