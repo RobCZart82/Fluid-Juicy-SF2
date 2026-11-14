@@ -1,4 +1,4 @@
-"""Generate a small original sine-wave SF2; no third-party samples."""
+"""Generate small original sine-wave SF2/SF3 fixtures; no third-party samples."""
 import math
 from pathlib import Path
 import struct
@@ -7,13 +7,13 @@ import sys
 def chunk(tag, data):
     return tag + struct.pack('<I', len(data)) + data + b'\0' * (len(data) % 2)
 
-def generate(path, bank_offset=0, octave_program=1, pressure=False, multitimbral=False):
+def generate(path, bank_offset=0, octave_program=1, pressure=False, multitimbral=False, vorbis=None):
     def name(s): return s.encode().ljust(20, b'\0')
-    # Exactly 100 periods at 440 Hz in 44100 samples; loop boundaries are integral.
+    # Exactly 440 periods at 440 Hz in 44100 samples; loop boundaries are integral.
     pcm = b''.join(struct.pack('<h', round(10000 * math.sin(2 * math.pi * 440 * n / 44100))) for n in range(44100))
-    info = chunk(b'LIST', b'INFO' + chunk(b'ifil', struct.pack('<HH', 2, 1)) +
+    info = chunk(b'LIST', b'INFO' + chunk(b'ifil', struct.pack('<HH', 3, 0) if vorbis else struct.pack('<HH', 2, 1)) +
                  chunk(b'isng', b'EMU8000\0') + chunk(b'INAM', b'Juicy test sine\0'))
-    sdta = chunk(b'LIST', b'sdta' + chunk(b'smpl', pcm + b'\0' * 92))
+    sdta = chunk(b'LIST', b'sdta' + chunk(b'smpl', vorbis if vorbis else pcm + b'\0' * 92))
     # Bank 8 is an octave higher, so tests can verify the selected bank by audio.
     presets = [('Sine', 0, 0), ('Sine 2', 1, 0), ('Octave', 0, 8), ('Octave 2', octave_program, 8)]
     if multitimbral:
@@ -41,10 +41,18 @@ def generate(path, bank_offset=0, octave_program=1, pressure=False, multitimbral
     pdta += chunk(b'ibag', struct.pack('<HHHH', 0, 0, 2, int(pressure)))
     pdta += chunk(b'imod', imod + b'\0' * 10)
     pdta += chunk(b'igen', struct.pack('<HHHHHH', 54, 1, 53, 0, 0, 0))
-    pdta += chunk(b'shdr', struct.pack('<20sIIIIIBbHH', name('Sine'), 0, 44100, 0, 44100, 44100, 69, 0, 0, 1) + struct.pack('<20sIIIIIBbHH', name('EOS'), 44100, 44100, 44100, 44100, 44100, 0, 0, 0, 1))
+    # SF3 sample offsets address compressed bytes; loop points remain PCM frames.
+    sample_end = len(vorbis) if vorbis else 44100
+    sample_type = 0x11 if vorbis else 1
+    pdta += chunk(b'shdr',
+                  struct.pack('<20sIIIIIBbHH', name('Sine'), 0, sample_end, 0, 44100, 44100, 69, 0, 0, sample_type) +
+                  struct.pack('<20sIIIIIBbHH', name('EOS'), sample_end, sample_end, 44100, 44100, 44100, 0, 0, 0, 1))
     Path(path).write_bytes(chunk(b'RIFF', b'sfbk' + info + sdta + chunk(b'LIST', b'pdta' + pdta)))
 
 if __name__ == '__main__':
+    if len(sys.argv) == 4 and sys.argv[2] == '--vorbis':
+        generate(sys.argv[1], pressure=True, multitimbral=True, vorbis=Path(sys.argv[3]).read_bytes())
+        sys.exit(0)
     generate(sys.argv[1])
     generate(Path(sys.argv[1]).with_name("test-shifted.sf2"), bank_offset=5)
     generate(Path(sys.argv[1]).with_name("test-sparse.sf2"), octave_program=2)

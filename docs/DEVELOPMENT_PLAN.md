@@ -152,3 +152,20 @@ A post-Output peak meter with a latched OVER indication exposes measured headroo
 problems without changing bank gain, adding a limiter or rewriting existing state.
 A bank-recall regression also prevents raw MIDI bank-select history from undoing
 a later GUI bank choice. Manual REAPER and long-session acceptance remain open.
+
+### Compressed SF3 regression gate
+
+The regular CTest suite now builds an original 440 Hz Ogg/Vorbis sample with the
+pinned libsndfile encoder and wraps it in a small SF3 bank. No external SoundFont
+is downloaded or bundled. The same 16-part audio assertions used for SF2 exercise
+SF3 channel isolation, bank/program selection, drum assignment, controllers,
+project recall, sample-rate rebuild and asynchronous bank handover. Output-meter
+checks also run against decoded SF3 audio. A truncated SF3 replacement must
+report an error while preserving the current bank and playing voice.
+
+Build `JuicyRegressionTests`, then run
+`ctest --test-dir <build> -R sf3 --output-on-failure`. CTest automatically
+generates both fixture stages. The
+normal platform workflows run these tests as part of the complete suite.
+This synthetic mono sample does not establish arbitrary third-party SF3 bank
+compatibility or replace manual REAPER checks on each target platform.
