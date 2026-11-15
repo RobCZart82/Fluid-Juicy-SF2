@@ -172,7 +172,8 @@ bool JuicySFAudioProcessorEditor::keyStateChanged (bool isKeyDown) {
 
 void JuicySFAudioProcessorEditor::selectPart(int part) {
     part = processor.getFluidSynthModel().isLegacyOmni() ? 0 : juce::jlimit(0, PartParameters::count - 1, part);
-    if (displayedPart >= 0 && displayedPart != part) processor.keyboardState.allNotesOff(displayedPart + 1);
+    // setMidiChannel releases only keys owned by the keyboard component.
+    // The shared state also tracks host notes, which must keep playing.
     displayedPart = part;
     processor.getFluidSynthModel().setSelectedPart(part);
     partSelector.setSelectedId(part + 1, dontSendNotification);

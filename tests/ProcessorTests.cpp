@@ -94,8 +94,8 @@ int main(int argc, char** argv) {
     }
     processor.prepareToPlay(44100.0, 2048);
     std::unique_ptr<AudioProcessorEditor> editor{processor.createEditor()};
-    check(editor->getWidth() == 575 && editor->getHeight() == 345,
-          "new editor opens at the 575 x 345 minimum");
+    check(editor->getWidth() == 600 && editor->getHeight() == 370,
+          "new editor opens at the 600 x 370 minimum");
     editor->keyPressed(KeyPress(KeyPress::leftKey));
     editor->keyPressed(KeyPress(KeyPress::rightKey));
     check(processor.getCurrentProgram() == 0, "empty-bank navigation is safe before loading");
@@ -124,7 +124,7 @@ int main(int argc, char** argv) {
         editor.reset(processor.createEditor());
     };
     restoreEditorSize(500, 300);
-    check(editor->getWidth() == 575 && editor->getHeight() == 345,
+    check(editor->getWidth() == 600 && editor->getHeight() == 370,
           "legacy editor size is raised to the new minimum");
     restoreEditorSize(720, 450);
     check(editor->getWidth() == 720 && editor->getHeight() == 450,
