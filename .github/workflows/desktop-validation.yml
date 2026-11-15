@@ -34,6 +34,10 @@ jobs:
       - name: Verify exported sources without Git metadata
         working-directory: src
         run: python3 scripts/check_source_bundle.py "${{ runner.temp }}/fj/x86_64/distribution/corresponding-source.tar.gz"
+      - name: Build and inspect Intel macOS preview installer
+        if: runner.os == 'macOS'
+        working-directory: src
+        run: python3 scripts/check_macos_installer.py "${{ runner.temp }}/fj/x86_64/distribution" --arch x86_64
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: fluid-juicy-sf2-${{ matrix.os }}-x86_64-development

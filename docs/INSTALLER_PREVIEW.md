@@ -33,3 +33,14 @@ upgrade tests; minimum OS and architecture checks; existing user-level plugin
 copies and duplicate scan behavior; Windows EXE implementation and runtime
 prerequisite handling. The local PKG payload smoke test is not installation or
 REAPER acceptance. No release is published by this script.
+
+## Automated native package checks
+
+Both native macOS workflows now run `check_macos_installer.py` on their verified
+ZIP before artifact upload. It extracts the package, reads the app version,
+builds the PKG and checks that both executable payload paths and the license
+are present. The requested architecture must match both products. The PKG,
+SHA-256 sidecar and payload listing are uploaded alongside the ZIP and source
+archive. No installer runs on the runner yet: these checks establish package
+construction and contents, not successful installation, launch or compatibility
+with older macOS versions. Windows packaging is unchanged by this step.
