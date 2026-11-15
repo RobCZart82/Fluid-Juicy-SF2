@@ -196,6 +196,23 @@ inline int runPartTests(const String& fixture) {
         check(std::abs(get(reopened, 1, "volume") - 42) < 0.01f && std::abs(get(reopened, 0, "volume") - 60) < 0.01f,
               "editing a mixer row updates only that part's automatable volume");
     }
+    {
+        JuicySFAudioProcessor held;
+        held.prepareToPlay(44100, 8192);
+        held.getFluidSynthModel().loadSoundFont(fixture, {});
+        std::unique_ptr<AudioProcessorEditor> editor(held.createEditor());
+        MidiBuffer on;
+        on.addEvent(MidiMessage::noteOn(1, 69, static_cast<juce::uint8>(100)), 0);
+        const auto before = amplitude(render(held, on), 440);
+        held.getFluidSynthModel().setSelectedPart(1);
+        // Use the same selector callback as a user click (no timer dependency).
+        for (auto* child : editor->getChildren())
+            if (auto* selector = dynamic_cast<juce::ComboBox*>(child))
+                if (selector->getComponentID() == "partSelector") selector->setSelectedId(2, juce::sendNotificationSync);
+        const auto after = amplitude(render(held, {}), 440);
+        check(before > 0.001 && after > before * 0.8,
+              "switching displayed parts preserves a held host MIDI note");
+    }
     p.prepareToPlay(44100, 8192);
     bool everyChannel = true;
     for (int part = 0; part < PartParameters::count; ++part) {

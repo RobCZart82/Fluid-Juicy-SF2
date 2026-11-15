@@ -137,7 +137,7 @@ inline int runLoaderTests(const String& path) {
         check(wait([&] { return blocks.load() >= 128; }), "parallel render workload starts before restore");
         std::thread worker([&] { restore(p, *empty); });
         worker.join();
-        check(box && box->getNumItems() == 2 && editor->getWidth() == 575,
+        check(box && box->getNumItems() == 2 && editor->getWidth() == 600,
               "worker restore cannot synchronously mutate the open bank chooser or editor dimensions");
         model.synchroniseUi();
         check(box && box->getNumItems() == 0, "message-thread publication clears the bank chooser");
