@@ -50,6 +50,8 @@ def main():
         notices.mkdir(parents=True)
         for name in ('LICENSE.txt', 'build-record.json', 'binary-verification.json'):
             shutil.copy2(source / name, notices / name)
+        for guide in source.glob('Fluid-Juicy-SF2-Installation-*.pdf'):
+            shutil.copy2(guide, notices / guide.name)
         components = Path(temporary) / 'components.plist'
         subprocess.run(['pkgbuild', '--analyze', '--root', str(root), str(components)], check=True)
         with components.open('rb') as stream:

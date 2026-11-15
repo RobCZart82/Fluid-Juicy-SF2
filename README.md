@@ -87,3 +87,14 @@ Based on **Juicy SF Plugin by Alex Birch**, with
 Original source: [GPLv3](LICENSE.txt). JUCE 9 is used under its AGPLv3 option;
 combined distributions must also meet its terms and the other dependency licenses.
 Original author notices are retained. SoundFonts have their own licenses.
+
+## How to install / Telepítés
+
+Installers are unsigned and macOS builds are not notarized. Read the platform
+warning steps before installing:
+
+- [English installation guide (PDF)](docs/install/Fluid-Juicy-SF2-Installation-EN.pdf)
+- [Magyar telepítési útmutató (PDF)](docs/install/Fluid-Juicy-SF2-Installation-HU.pdf)
+
+Each planned installer includes VST3 and standalone; no SoundFonts are bundled.
+Windows EXE packaging and clean-machine acceptance remain pending.
