@@ -7,9 +7,9 @@
 
 MyColours::MyColours()
 {
-    const Colour background{0xff191d21};
-    const Colour panel{0xff22282d};
-    const Colour outline{0xff3b444c};
+    const Colour background{0xff212529};
+    const Colour panel{0xff2a3035};
+    const Colour outline{0xff434c54};
     const Colour text{0xfff2f5f6};
     const Colour teal{accent};
     const Colour selection{selectedRow};
@@ -32,6 +32,6 @@ MyColours::MyColours()
     setColour(juce::Slider::thumbColourId, teal);
     setColour(juce::Slider::trackColourId, teal);
     setColour(juce::Slider::textBoxOutlineColourId, outline);
-    setColour(juce::ScrollBar::thumbColourId, Colour(0xff77848d));
+    setColour(juce::ScrollBar::thumbColourId, Colour(0xff7d8a93));
     setColour(juce::SurjectiveMidiKeyboardComponent::keyDownOverlayColourId, teal);
 }

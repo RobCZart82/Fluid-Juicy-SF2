@@ -11,6 +11,6 @@ class MyColours final : public LookAndFeel_V4
 public:
     MyColours();
 
-    static constexpr juce::uint32 selectedRow = 0xff214640;
+    static constexpr juce::uint32 selectedRow = 0xff294e48;
     static constexpr juce::uint32 accent = 0xff63c7bb;
 };
