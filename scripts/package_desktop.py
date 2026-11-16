@@ -152,6 +152,8 @@ def main():
                 evidence[bundle.name] = verify_pe(binary)
         (stage / 'build-record.json').write_text(json.dumps(record, indent=2), encoding='utf-8')
         shutil.copy2(ROOT / 'LICENSE.txt', stage)
+        for guide in (ROOT / 'docs/install').glob('*.pdf'):
+            shutil.copy2(guide, stage)
         (stage / 'binary-verification.json').write_text(json.dumps(evidence, indent=2), encoding='utf-8')
         (stage / 'README.txt').write_text(
             f'Fluid Juicy SF2 by RobCZart82 - development preview ({os_name}, {args.arch}).\n'

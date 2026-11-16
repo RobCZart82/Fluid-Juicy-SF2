@@ -76,3 +76,10 @@ A failed replacement while a working bank is already loaded keeps that bank and
 reports the error. It does not silently swap to a similarly named file. Native
 chooser permissions and project recall should be checked in your particular host;
 automated builds do not replace manual REAPER acceptance.
+
+## Installation and unsigned publisher warnings
+
+See the separate [English PDF](install/Fluid-Juicy-SF2-Installation-EN.pdf) or
+[Hungarian PDF](install/Fluid-Juicy-SF2-Installation-HU.pdf). The editable text is
+in INSTALL_EN.md and INSTALL_HU.md in the same directory. These guides distinguish
+current preview packaging from planned Windows installer behavior.
