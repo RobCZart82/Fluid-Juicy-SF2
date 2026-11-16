@@ -44,3 +44,24 @@ SHA-256 sidecar and payload listing are uploaded alongside the ZIP and source
 archive. No installer runs on the runner yet: these checks establish package
 construction and contents, not successful installation, launch or compatibility
 with older macOS versions. Windows packaging is unchanged by this step.
+
+## Windows unsigned preview EXE
+
+The Windows CI now compiles `installers/windows/FluidJuicySF2.iss` using the
+runner-installed Inno Setup 6 compiler. The build fails explicitly if ISCC is
+unavailable; it does not download an unverified installer compiler. The input
+is the verified development ZIP. Both product binaries must be x64 PE32+.
+
+The installer includes the standalone under Program Files/Fluid Juicy SF2, the
+complete VST3 bundle under Common Files/VST3, both installation PDFs, project
+license and build records. It creates Start menu shortcuts and an uninstaller.
+No SoundFonts or user settings are removed by an uninstall entry. Close audio
+hosts before installing/upgrading. This installer requires administrator rights,
+is unsigned and does not bundle or download the Visual C++ runtime. Missing
+runtime prerequisites must be installed from Microsoft, as described in the guide.
+
+The EXE and SHA-256 sidecar join the development artifact with corresponding
+source. Compilation does not establish clean-machine installation, upgrades,
+uninstallation, standalone launch or REAPER compatibility. Those tests remain
+release gates, especially on Windows 10 (the hosted build runner is Server 2022).
+The inherited preview version is retained; this is not a v1.0.0 publication.
