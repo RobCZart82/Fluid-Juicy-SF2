@@ -20,7 +20,7 @@ public:
         auto bar = area.reduced(0, 5).toFloat();
         const float db = juce::Decibels::gainToDecibels(level, -60.0f);
         const float fraction = juce::jlimit(0.0f, 1.0f, (db + 60.0f) / 60.0f);
-        g.setColour(juce::Colour(0xff20282e)); g.fillRect(bar);
+        g.setColour(juce::Colour(0xff283036)); g.fillRect(bar);
         g.setColour(over ? juce::Colour(0xffed6868) : db > -3.0f ? juce::Colour(0xffd8ba55) : juce::Colour(0xff60c5ba));
         g.fillRect(bar.withWidth(bar.getWidth() * fraction));
         g.setFont(juce::FontOptions(11.0f));
