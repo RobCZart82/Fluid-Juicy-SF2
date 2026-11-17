@@ -38,6 +38,15 @@ jobs:
         if: runner.os == 'macOS'
         working-directory: src
         run: python3 scripts/check_macos_installer.py "${{ runner.temp }}/fj/x86_64/distribution" --arch x86_64
+      - name: Build unsigned Windows installer
+        if: runner.os == 'Windows'
+        working-directory: src
+        shell: pwsh
+        run: |
+          $compiler = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $compiler)) { throw "Inno Setup 6 is required on the runner" }
+          python scripts/build_windows_installer.py "${{ runner.temp }}/fj/x86_64/distribution" --compiler "$compiler"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: fluid-juicy-sf2-${{ matrix.os }}-x86_64-development
