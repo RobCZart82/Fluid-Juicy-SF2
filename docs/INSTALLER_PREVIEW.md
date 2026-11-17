@@ -65,3 +65,26 @@ source. Compilation does not establish clean-machine installation, upgrades,
 uninstallation, standalone launch or REAPER compatibility. Those tests remain
 release gates, especially on Windows 10 (the hosted build runner is Server 2022).
 The inherited preview version is retained; this is not a v1.0.0 publication.
+
+## Disposable Windows installer lifecycle gate
+
+The Windows workflow runs `check_windows_install.ps1` after compiling the EXE.
+It refuses non-GitHub/non-Windows environments and existing product installation
+paths. It silently installs, checks both product binaries and language PDFs,
+reinstalls the same version, then uninstalls and checks that installed files were
+removed. Installer logs and a success record are preserved in the artifact;
+failure diagnostics include the installer logs.
+
+This does not test a previous-version upgrade, SmartScreen interaction, clean
+Windows 10 runtime dependencies or a live REAPER session. The hosted runner has
+development tools and runtimes preinstalled. These remain release acceptance
+requirements even when this lifecycle gate passes.
+
+User-reported macOS arm64 acceptance (2026-11-16): the preview PKG installed
+successfully and both standalone and plugin worked. This is user feedback, not
+an independent Intel/Windows or full 16-part acceptance result. Exact artifact
+hash/build attribution still needs to be attached to the acceptance record.
+
+Primary real-bank acceptance priorities: Live HQ Natural SoundFont GM V3.0 and
+Tyroland Fixedup10. Timbres of Heaven 4.00 remains a secondary comparison bank.
+No bank is redistributed by these installers.
