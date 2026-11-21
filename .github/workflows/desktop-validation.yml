@@ -37,7 +37,7 @@ jobs:
       - name: Build and inspect Intel macOS preview installer
         if: runner.os == 'macOS'
         working-directory: src
-        run: python3 scripts/check_macos_installer.py "${{ runner.temp }}/fj/x86_64/distribution" --arch x86_64
+        run: python3 scripts/check_macos_installer.py "${{ runner.temp }}/fj/x86_64/distribution" --arch x86_64 --install-on-runner
       - name: Build unsigned Windows installer
         if: runner.os == 'Windows'
         working-directory: src
@@ -67,5 +67,6 @@ jobs:
             ${{ runner.temp }}/fj/x86_64/**/CMakeConfigureLog.yaml
             ${{ runner.temp }}/fj/x86_64/plugin/Testing/Temporary/LastTest.log
             ${{ runner.temp }}/fj/x86_64/distribution/windows-*.log
+            ${{ runner.temp }}/fj/x86_64/distribution/*.install.log
           if-no-files-found: ignore
           retention-days: 14
