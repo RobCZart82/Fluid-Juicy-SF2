@@ -7,6 +7,8 @@ import subprocess
 import sys
 import tempfile
 
+from build import product_manifest
+
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
@@ -27,18 +29,28 @@ def main():
         subprocess.run([sys.executable, str(Path(__file__).with_name('build_macos_installer.py')),
                         str(source), '--version', version, '--output', str(output)], check=True)
         payload = subprocess.check_output(['pkgutil', '--payload-files', str(output)], text=True)
-        required = ['Applications/Fluid_Juicy_SF2.app/Contents/MacOS/Fluid_Juicy_SF2',
-                    'Library/Audio/Plug-Ins/VST3/Fluid_Juicy_SF2.vst3/Contents/MacOS/Fluid_Juicy_SF2',
-                    'Library/Application Support/Fluid Juicy SF2/LICENSE.txt']
-        paths = {line.removeprefix('./') for line in payload.splitlines()}
-        if any(path not in paths for path in required):
-            raise RuntimeError('Installer payload is missing a required product or license')
-        # Confirm the artifact label matches the actual input architecture too.
-        for name in ('Fluid_Juicy_SF2.app', 'Fluid_Juicy_SF2.vst3'):
-            binary = source / name / 'Contents/MacOS/Fluid_Juicy_SF2'
+        expanded = folder / 'expanded'
+        subprocess.run(['pkgutil', '--expand-full', str(output), str(expanded)], check=True)
+        payload_root = expanded / 'Payload'
+        for name, install_dir in (
+            ('Fluid_Juicy_SF2.app', 'Applications'),
+            ('Fluid_Juicy_SF2.vst3', 'Library/Audio/Plug-Ins/VST3'),
+        ):
+            installed = payload_root / install_dir / name
+            if product_manifest(installed) != product_manifest(source / name):
+                raise RuntimeError(f'Packaged bundle differs from verified ZIP: {name}')
+            subprocess.run(['codesign', '--verify', '--strict', str(installed)], check=True)
+            binary = installed / 'Contents/MacOS/Fluid_Juicy_SF2'
             actual = subprocess.check_output(['lipo', '-archs', str(binary)], text=True).strip()
             if actual != args.arch:
                 raise RuntimeError(f'Expected {args.arch}, got {actual}')
+
+        support = payload_root / 'Library/Application Support/Fluid Juicy SF2'
+        for name in ('LICENSE.txt', 'build-record.json', 'binary-verification.json',
+                     'Fluid-Juicy-SF2-Installation-EN.pdf',
+                     'Fluid-Juicy-SF2-Installation-HU.pdf'):
+            if (support / name).read_bytes() != (source / name).read_bytes():
+                raise RuntimeError(f'Packaged documentation or build record differs: {name}')
         output.with_suffix('.payload.txt').write_text(payload)
     print('Installer build and payload checks passed; installation acceptance is still pending.')
 
