@@ -47,6 +47,11 @@ jobs:
           if (!(Test-Path $compiler)) { throw "Inno Setup 6 is required on the runner" }
           python scripts/build_windows_installer.py "${{ runner.temp }}/fj/x86_64/distribution" --compiler "$compiler"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Test Windows install, reinstall and uninstall on disposable runner
+        if: runner.os == 'Windows'
+        working-directory: src
+        shell: pwsh
+        run: ./scripts/check_windows_install.ps1 -Distribution "${{ runner.temp }}/fj/x86_64/distribution"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: fluid-juicy-sf2-${{ matrix.os }}-x86_64-development
@@ -61,5 +66,6 @@ jobs:
           path: |
             ${{ runner.temp }}/fj/x86_64/**/CMakeConfigureLog.yaml
             ${{ runner.temp }}/fj/x86_64/plugin/Testing/Temporary/LastTest.log
+            ${{ runner.temp }}/fj/x86_64/distribution/windows-*.log
           if-no-files-found: ignore
           retention-days: 14
