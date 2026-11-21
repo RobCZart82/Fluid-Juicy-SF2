@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Build and inspect the native preview installer without installing it."""
 import argparse
+import os
 from pathlib import Path
 import plistlib
 import subprocess
@@ -14,7 +15,14 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('distribution', type=Path)
     parser.add_argument('--arch', required=True, choices=('arm64', 'x86_64'))
+    parser.add_argument('--install-on-runner', action='store_true')
     args = parser.parse_args()
+    if args.install_on_runner and (
+        os.environ.get('GITHUB_ACTIONS') != 'true'
+        or os.environ.get('RUNNER_OS') != 'macOS'
+        or os.environ.get('RUNNER_ENVIRONMENT') != 'github-hosted'
+    ):
+        parser.error('Installation testing requires a GitHub-hosted macOS runner')
     distribution = args.distribution.resolve()
     archives = list(distribution.glob('*.zip'))
     if len(archives) != 1:
@@ -52,7 +60,28 @@ def main():
             if (support / name).read_bytes() != (source / name).read_bytes():
                 raise RuntimeError(f'Packaged documentation or build record differs: {name}')
         output.with_suffix('.payload.txt').write_text(payload)
-    print('Installer build and payload checks passed; installation acceptance is still pending.')
+        if args.install_on_runner:
+            install_roots = (
+                Path('/Applications/Fluid_Juicy_SF2.app'),
+                Path('/Library/Audio/Plug-Ins/VST3/Fluid_Juicy_SF2.vst3'),
+                Path('/Library/Application Support/Fluid Juicy SF2'),
+            )
+            if any(path.exists() or path.is_symlink() for path in install_roots):
+                raise RuntimeError('Existing installation found on the runner')
+            with output.with_suffix('.install.log').open('w') as log:
+                for phase in ('install', 'reinstall'):
+                    print(phase, file=log, flush=True)
+                    subprocess.run(['sudo', '-n', '/usr/sbin/installer', '-pkg',
+                                    str(output), '-target', '/'], stdout=log,
+                                   stderr=subprocess.STDOUT, check=True)
+                    for path in install_roots:
+                        expected = payload_root / path.relative_to('/')
+                        if product_manifest(path) != product_manifest(expected):
+                            raise RuntimeError(f'{phase}: installed files differ at {path}')
+                    for bundle in install_roots[:2]:
+                        subprocess.run(['codesign', '--verify', '--strict', str(bundle)], check=True)
+                    print(f'{phase}: installed files and signatures verified', file=log, flush=True)
+    print('Installer checks passed.')
 
 
 if __name__ == '__main__':
