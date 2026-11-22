@@ -9,11 +9,11 @@ On macOS, extract a verified development ZIP, then run:
 
 ```sh
 python3 scripts/build_macos_installer.py /path/to/Fluid-Juicy-SF2 \
-  --version 3.1.1 --output /path/to/Fluid-Juicy-SF2-preview.pkg
+  --version 1.0.0 --output /path/to/Fluid-Juicy-SF2-preview.pkg
 ```
 
-Use the version of the input build. The inherited preview is still 3.1.1;
-1.0.0 version migration is a separate release task.
+Use the version of the input build. Current builds use 1.0.0 for the first
+release of this fork. Older development previews inherited version 3.1.1.
 
 The script verifies signatures and matching arm64/x86_64 architecture, stages
 both products and builds an unsigned package plus SHA-256 file. It does not
@@ -64,7 +64,7 @@ The EXE and SHA-256 sidecar join the development artifact with corresponding
 source. Compilation does not establish clean-machine installation, upgrades,
 uninstallation, standalone launch or REAPER compatibility. Those tests remain
 release gates, especially on Windows 10 (the hosted build runner is Server 2022).
-The inherited preview version is retained; this is not a v1.0.0 publication.
+Builds with 1.0.0 metadata are still development previews until publication.
 
 ## Disposable Windows installer lifecycle gate
 
@@ -88,3 +88,13 @@ hash/build attribution still needs to be attached to the acceptance record.
 Primary real-bank acceptance priorities: Live HQ Natural SoundFont GM V3.0 and
 Tyroland Fixedup10. Timbres of Heaven 4.00 remains a secondary comparison bank.
 No bank is redistributed by these installers.
+
+## Transition from the inherited 3.1.1 preview
+
+The new version number is numerically lower. Close REAPER and the standalone
+application before switching versions. On Windows, uninstall the old preview
+first. On macOS, move the old standalone and VST3 bundles out of their install
+locations, including any VST3 copy in the user Library, before installing.
+Keep your SoundFonts and project files. This is the manual transition path.
+Test it on each platform before release, including reopening a project saved
+with the older preview.
