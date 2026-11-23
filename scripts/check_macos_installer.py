@@ -3,12 +3,12 @@
 import argparse
 import os
 from pathlib import Path
-import plistlib
+import json
 import subprocess
 import sys
 import tempfile
 
-from build import product_manifest
+from build import product_manifest, project_version
 
 
 def main():
@@ -31,8 +31,10 @@ def main():
         folder = Path(temporary)
         subprocess.run(['ditto', '-x', '-k', str(archives[0]), str(folder)], check=True)
         source = folder / 'Fluid-Juicy-SF2'
-        with (source / 'Fluid_Juicy_SF2.app/Contents/Info.plist').open('rb') as stream:
-            version = plistlib.load(stream)['CFBundleShortVersionString']
+        record = json.loads((source / 'build-record.json').read_text(encoding='utf-8'))
+        version = project_version()
+        if record.get('version') != version:
+            raise RuntimeError('macOS ZIP version differs from the source version')
         output = distribution / f'Fluid-Juicy-SF2-macos-{args.arch}-preview.pkg'
         subprocess.run([sys.executable, str(Path(__file__).with_name('build_macos_installer.py')),
                         str(source), '--version', version, '--output', str(output)], check=True)
