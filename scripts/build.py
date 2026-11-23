@@ -6,10 +6,19 @@ import json
 import os
 from pathlib import Path
 import platform
+import re
 import shutil
 import subprocess
 
 ROOT = Path(__file__).resolve().parents[1]
+def project_version():
+    declaration = (ROOT / 'CMakeLists.txt').read_text(encoding='utf-8')
+    match = re.search(r'^project\(JUICY_SF_PLUGIN VERSION ([0-9]+\.[0-9]+\.[0-9]+)\s', declaration, re.MULTILINE)
+    if not match:
+        raise RuntimeError('Missing JUICY_SF_PLUGIN project version')
+    return match[1]
+
+
 PINS = {
     'ogg': ('https://github.com/xiph/ogg.git', 'be05b13e98b048f0b5a0f5fa8ce514d56db5f822'),
     'vorbis': ('https://github.com/xiph/vorbis.git', '0657aee69dec8508a0011f47f3b69d7538e9d262'),
@@ -205,7 +214,7 @@ def main():
         '--target', 'JuicySFPlugin_VST3', 'JuicySFPlugin_Standalone', 'JuicyRegressionTests')
     ctest = Path(shutil.which(args.cmake) or args.cmake).resolve().with_name('ctest.exe' if os.name == 'nt' else 'ctest')
     run(ctest, '--test-dir', plugin, '-C', 'Release', '--output-on-failure')
-    record = {'pins': PINS, 'arch': arch, 'platform': platform.platform(),
+    record = {'version': project_version(), 'pins': PINS, 'arch': arch, 'platform': platform.platform(),
               'cmake': subprocess.check_output([args.cmake, '--version'], text=True),
               'status': 'build and processor regression tests passed; DAW acceptance not tested'}
     if revision is not None and clean_revision(ROOT) == revision:

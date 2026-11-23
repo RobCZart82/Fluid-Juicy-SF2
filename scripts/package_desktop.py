@@ -8,13 +8,14 @@ import json
 import io
 from pathlib import Path
 import platform
+import plistlib
 import shutil
 import struct
 import subprocess
 import tarfile
 import tempfile
 
-from build import ROOT, PINS, clean_revision, desktop_products, product_manifest, run
+from build import ROOT, PINS, clean_revision, desktop_products, product_manifest, project_version, run
 
 
 def verify_pe(path):
@@ -111,6 +112,8 @@ def main():
     record = json.loads(record_path.read_text(encoding='utf-8'))
     if record['arch'] != args.arch or record['pins'] != {k: list(v) for k, v in PINS.items()}:
         raise RuntimeError('Build record does not match the requested architecture/source pins')
+    if record.get('version') != project_version():
+        raise RuntimeError('Build version differs from the source version. Rebuild before packaging.')
     source_commit = record.get('source_commit')
     if not source_commit or clean_revision(ROOT) != source_commit:
         raise RuntimeError('Plugin source differs from the successful build. Rebuild before packaging.')
@@ -135,6 +138,9 @@ def main():
             if product_manifest(target) != expected_products[bundle.name]:
                 raise RuntimeError(f'Build product changed while copying: {bundle}')
             if system == 'Darwin':
+                with (target / 'Contents/Info.plist').open('rb') as stream:
+                    if plistlib.load(stream).get('CFBundleShortVersionString') != record['version']:
+                        raise RuntimeError(f'Bundle version differs from build record: {bundle}')
                 binary = target / 'Contents/MacOS/Fluid_Juicy_SF2'
                 arch = subprocess.check_output(['lipo', '-archs', str(binary)], text=True).strip()
                 if arch != args.arch:
